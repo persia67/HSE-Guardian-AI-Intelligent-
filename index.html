@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HSE Guardian AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes pulse-danger {
+        0%, 100% { border-color: rgba(239, 68, 68, 0.5); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+        50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 15px 0 rgba(239, 68, 68, 0.4); }
+      }
+      .animate-pulse-danger {
+        animation: pulse-danger 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      /* Disable text selection for kiosk feel */
+      body {
+        user-select: none;
+        -webkit-user-select: none;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+  }
+}
+</script>
+</head>
+  <body class="bg-slate-950 text-slate-100 overflow-hidden">
+    <div id="root"></div>
+    <script>
+      // Simple preventative measure for devtools in browser (Electron handles this better in main.js)
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
+          e.preventDefault();
+        }
+      });
+    </script>
+  </body>
+</html>
