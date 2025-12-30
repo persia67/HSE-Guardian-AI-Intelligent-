@@ -10,13 +10,25 @@
         0%, 100% { border-color: rgba(239, 68, 68, 0.5); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
         50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 15px 0 rgba(239, 68, 68, 0.4); }
       }
-      .animate-pulse-danger {
-        animation: pulse-danger 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-      }
       /* Disable text selection for kiosk feel */
       body {
         user-select: none;
         -webkit-user-select: none;
+      }
+      /* Custom Scrollbar for WebKit */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: #0f172a; 
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #334155; 
+        border-radius: 3px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #475569; 
       }
     </style>
   <script type="importmap">
@@ -25,15 +37,19 @@
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0"
   }
 }
 </script>
 </head>
   <body class="bg-slate-950 text-slate-100 overflow-hidden">
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
     <script>
-      // Simple preventative measure for devtools in browser (Electron handles this better in main.js)
+      // Prevent F12/DevTools in production (Electron handles this better via main.js, but good redundancy)
       document.addEventListener('keydown', function(e) {
         if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
           e.preventDefault();

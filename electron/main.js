@@ -8,6 +8,8 @@ const path = require('path');
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
 if (!gotTheLock) {
   app.quit();
 } else {
@@ -25,6 +27,7 @@ if (!gotTheLock) {
         nodeIntegration: false,
         contextIsolation: true,
         preload: path.join(__dirname, 'preload.js'),
+        sandbox: false
       },
     });
 
@@ -32,7 +35,15 @@ if (!gotTheLock) {
     mainWindow.setMenuBarVisibility(false);
 
     // Load the app
-    mainWindow.loadFile(path.join(__dirname, '../index.html'));
+    if (isDev) {
+      mainWindow.loadURL('http://localhost:5173');
+    } else {
+      mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    }
+
+    mainWindow.on('closed', () => {
+      mainWindow = null;
+    });
   }
 
   app.whenReady().then(() => {

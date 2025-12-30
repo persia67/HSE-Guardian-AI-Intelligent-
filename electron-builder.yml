@@ -1,0 +1,29 @@
+appId: com.hse.guardian.ai
+productName: HSE Guardian AI
+directories:
+  output: release
+  buildResources: resources
+files:
+  - from: dist
+    to: dist
+    filter: ["**/*"]
+  - from: electron
+    to: electron
+    filter: ["**/*"]
+  - package.json
+win:
+  target: nsis
+  icon: resources/icon.ico
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+mac:
+  target: dmg
+  icon: resources/icon.icns
+linux:
+  target: AppImage
+  category: Utility
+  icon: resources/icon.png
