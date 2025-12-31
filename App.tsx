@@ -3,6 +3,7 @@ import { Shield, Play, Pause, Grid, Maximize2, AlertTriangle, Activity, CheckCir
 import { GoogleGenAI } from "@google/genai";
 import { CameraGrid } from './components/CameraGrid';
 import { Pagination } from './components/Pagination';
+import { SingleCameraView } from './components/SingleCameraView';
 import { AuthGuard } from './components/AuthGuard';
 import { Detection, CameraDevice, SafetyScore } from './types';
 import { performanceMonitor } from './utils/performanceMonitor';
@@ -37,7 +38,7 @@ export default function HSEGuardianAI() {
     environment: 98
   });
   
-  const [selectedCamera, setSelectedCamera] = useState<string>('cam1');
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('cam1');
   const [currentPage, setCurrentPage] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'single'>('grid');
   const [filterRisk, setFilterRisk] = useState<'all' | 'high'>('all');
@@ -104,6 +105,10 @@ export default function HSEGuardianAI() {
     return filteredCameras.slice(start, start + CAMERAS_PER_PAGE);
   }, [filteredCameras, currentPage]);
 
+  const activeCamera = useMemo(() => 
+    cameras.find(c => c.id === selectedCameraId) || cameras[0]
+  , [cameras, selectedCameraId]);
+
   // Update Processing Queue
   const updateProcessingQueue = useCallback(() => {
     const sorted = [...cameras]
@@ -127,6 +132,7 @@ export default function HSEGuardianAI() {
         return;
       }
 
+      // Explicit constraints to avoid hardware mismatch
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { 
           width: { ideal: CAMERA_WIDTH }, 
@@ -146,10 +152,14 @@ export default function HSEGuardianAI() {
         video.srcObject = stream;
         video.play().catch(e => console.error("Play error", e));
       }
-    } catch (error) {
-      console.error('Camera error:', error);
+    } catch (error: any) {
+      console.error('Camera access failed:', error);
+      
+      // Specifically handle missing hardware error
+      const isNotFoundError = error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError';
+      
       setCameras(prev => prev.map(cam =>
-        cam.id === cameraId ? { ...cam, status: 'offline' } : cam
+        cam.id === cameraId ? { ...cam, status: isNotFoundError ? 'no-hardware' : 'offline', active: false } : cam
       ));
     }
   }, [cameras]);
@@ -167,9 +177,14 @@ export default function HSEGuardianAI() {
     if (video) video.srcObject = null;
   }, []);
 
+  const handleCameraSelect = (id: string) => {
+    setSelectedCameraId(id);
+    setViewMode('single');
+  };
+
   const startAllCamerasInPage = useCallback(async () => {
     const promises = visibleCameras
-      .filter(c => !c.active)
+      .filter(c => !c.active && c.status !== 'no-hardware')
       .slice(0, MAX_SIMULTANEOUS_STREAMS)
       .map(c => startCamera(c.id));
     
@@ -270,7 +285,7 @@ export default function HSEGuardianAI() {
   // AI Report Generation
   const generateAIReport = async () => {
     if (!process.env.API_KEY) {
-      setReportContent("Error: No API Key available. Please configure the environment.");
+      setReportContent("Critical Error: AI processing requires an Enterprise API Key. System administrator has been notified.");
       setIsReportOpen(true);
       return;
     }
@@ -280,6 +295,7 @@ export default function HSEGuardianAI() {
     setReportContent("");
 
     try {
+      // Re-initialize for every call to ensure the latest key is used if it changed
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       // Prepare the log data with explicit location information
@@ -288,6 +304,7 @@ export default function HSEGuardianAI() {
         return `- Incident: ${d.description} (${d.severity}) | Camera: ${cam?.name || d.cameraId} | Location: ${cam?.location || 'Unknown'}`;
       }).join('\n');
 
+      // FIXED: Using 'gemini-3-flash-preview' instead of deprecated names
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `You are an expert Industrial Safety Officer. Generate a concise but professional shift report based on the following recent detected incidents.
@@ -300,9 +317,14 @@ export default function HSEGuardianAI() {
         Format the report with a summary of risks followed by specific actionable items per location.`
       });
 
-      setReportContent(response.text || "No content generated.");
+      if (!response.text) {
+        throw new Error("The AI model returned an empty response.");
+      }
+
+      setReportContent(response.text);
     } catch (error: any) {
-      setReportContent(`Failed to generate report: ${error.message}`);
+      console.error("AI Generation Error:", error);
+      setReportContent(`Report Generation Failed: ${error.message || 'Unknown provider error'}.\n\nPlease ensure your API Key is valid and the 'gemini-3-flash-preview' model is enabled for your project.`);
     } finally {
       setIsGeneratingReport(false);
     }
@@ -451,12 +473,19 @@ export default function HSEGuardianAI() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <CameraGrid
-                cameras={cameras}
-                visibleCameras={visibleCameras}
-                onCameraSelect={setSelectedCamera}
-                selectedCamera={selectedCamera}
-              />
+              {viewMode === 'grid' ? (
+                <CameraGrid
+                  cameras={cameras}
+                  visibleCameras={visibleCameras}
+                  onCameraSelect={handleCameraSelect}
+                  selectedCamera={selectedCameraId}
+                />
+              ) : (
+                <SingleCameraView 
+                  camera={activeCamera} 
+                  onBack={() => setViewMode('grid')}
+                />
+              )}
             </div>
           </div>
 
@@ -488,7 +517,8 @@ export default function HSEGuardianAI() {
                   return (
                     <div 
                       key={det.id} 
-                      className={`p-3 rounded-lg border text-sm transition-all duration-300 relative overflow-hidden pl-4 ${styles.card}`}
+                      onClick={() => handleCameraSelect(det.cameraId)}
+                      className={`p-3 rounded-lg border text-sm transition-all duration-300 relative overflow-hidden pl-4 cursor-pointer hover:ring-2 hover:ring-white/10 ${styles.card}`}
                     >
                       {/* Severity Sidebar Indicator */}
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${styles.indicator}`}></div>
@@ -564,7 +594,7 @@ export default function HSEGuardianAI() {
                 {isGeneratingReport ? (
                   <div className="flex flex-col items-center justify-center h-48 space-y-4">
                     <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                    <p className="text-slate-400 animate-pulse">Analyzing logs with Gemini AI...</p>
+                    <p className="text-slate-400 animate-pulse text-center">Synthesizing Safety Data via Gemini Intelligence Engine...</p>
                   </div>
                 ) : (
                   <div className="prose prose-invert max-w-none whitespace-pre-wrap">
@@ -583,7 +613,6 @@ export default function HSEGuardianAI() {
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(reportContent);
-                    // Optional: add a toast notification here
                   }}
                   disabled={isGeneratingReport || !reportContent}
                   className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

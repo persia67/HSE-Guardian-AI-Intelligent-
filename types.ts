@@ -17,7 +17,7 @@ export interface CameraDevice {
   riskScore: number;
   lastDetection?: number;
   fps: number;
-  status: 'online' | 'offline' | 'processing';
+  status: 'online' | 'offline' | 'processing' | 'no-hardware';
 }
 
 export interface SafetyScore {

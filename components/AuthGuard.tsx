@@ -15,6 +15,24 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   const [isBiometricScanning, setIsBiometricScanning] = useState(false);
   const [lockedReason, setLockedReason] = useState<'initial' | 'timeout'>('initial');
 
+  // Inactivity Timer Ref
+  // Fix: Added initial value undefined to useRef to satisfy TypeScript requirements (Expected 1 argument)
+  const inactivityTimerRef = useRef<number | undefined>(undefined);
+
+  const lock = useCallback((reason: 'initial' | 'timeout' = 'timeout') => {
+    setIsAuthenticated(false);
+    setLockedReason(reason);
+  }, []);
+
+  const resetInactivityTimer = useCallback(() => {
+    if (inactivityTimerRef.current !== undefined) {
+      window.clearTimeout(inactivityTimerRef.current);
+    }
+    if (isAuthenticated) {
+      inactivityTimerRef.current = window.setTimeout(() => lock('timeout'), INACTIVITY_TIMEOUT);
+    }
+  }, [isAuthenticated, lock]);
+
   // Handle PIN Entry
   const handlePinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,12 +50,7 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     setPin("");
     setError(false);
     resetInactivityTimer();
-  }, []);
-
-  const lock = useCallback((reason: 'initial' | 'timeout' = 'timeout') => {
-    setIsAuthenticated(false);
-    setLockedReason(reason);
-  }, []);
+  }, [resetInactivityTimer]);
 
   // Biometric Simulation
   const handleBiometricScan = () => {
@@ -47,16 +60,6 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
       unlock();
     }, 1500);
   };
-
-  // Inactivity Timer
-  const inactivityTimerRef = useRef<number>();
-
-  const resetInactivityTimer = useCallback(() => {
-    clearTimeout(inactivityTimerRef.current);
-    if (isAuthenticated) {
-      inactivityTimerRef.current = window.setTimeout(() => lock('timeout'), INACTIVITY_TIMEOUT);
-    }
-  }, [isAuthenticated, lock]);
 
   useEffect(() => {
     // Monitor user activity
@@ -70,7 +73,9 @@ export const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
 
     return () => {
       events.forEach(event => window.removeEventListener(event, handleActivity));
-      clearTimeout(inactivityTimerRef.current);
+      if (inactivityTimerRef.current !== undefined) {
+        window.clearTimeout(inactivityTimerRef.current);
+      }
     };
   }, [isAuthenticated, resetInactivityTimer]);
 
