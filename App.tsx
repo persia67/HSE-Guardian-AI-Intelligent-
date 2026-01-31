@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Shield, Play, Pause, Grid, Maximize2, AlertTriangle, Activity, CheckCircle2, FileText, X, Loader2 } from 'lucide-react';
+import { Shield, Play, Pause, Grid, Maximize2, AlertTriangle, Activity, CheckCircle2, FileText, X, Loader2, Settings2 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { CameraGrid } from './components/CameraGrid';
 import { Pagination } from './components/Pagination';
 import { SingleCameraView } from './components/SingleCameraView';
 import { AuthGuard } from './components/AuthGuard';
+import { CameraSetupModal } from './components/CameraSetupModal';
 import { Detection, CameraDevice, SafetyScore } from './types';
 import { performanceMonitor } from './utils/performanceMonitor';
 
@@ -19,14 +20,15 @@ const CAMERAS_PER_PAGE = 9;
 export default function HSEGuardianAI() {
   // State
   const [cameras, setCameras] = useState<CameraDevice[]>(() => 
-    Array.from({ length: 45 }, (_, i) => ({
+    Array.from({ length: 9 }, (_, i) => ({
       id: `cam${i + 1}`,
-      name: `Camera Unit ${i + 1}`,
+      name: `Simulated Unit ${i + 1}`,
       location: `Zone ${Math.floor(i / 10) + 1} - Sec ${(i % 10) + 1}`,
       active: false,
       riskScore: 0,
       fps: 0,
-      status: 'offline' as const
+      status: 'offline' as const,
+      connectionType: 'simulation' as const
     }))
   );
   
@@ -47,6 +49,9 @@ export default function HSEGuardianAI() {
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [reportContent, setReportContent] = useState("");
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+  // Config Modal State
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   // Performance State
   const [perfMetrics, setPerfMetrics] = useState({ 
@@ -127,19 +132,34 @@ export default function HSEGuardianAI() {
   // Camera Control
   const startCamera = useCallback(async (cameraId: string) => {
     try {
+      const camera = cameras.find(c => c.id === cameraId);
+      if (!camera) return;
+
       const activeCount = cameras.filter(c => c.active).length;
       if (activeCount >= MAX_SIMULTANEOUS_STREAMS) {
         return;
       }
 
-      // Explicit constraints to avoid hardware mismatch
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          width: { ideal: CAMERA_WIDTH }, 
+      // Handle Network Camera (Mock activation)
+      if (camera.connectionType === 'network') {
+        setCameras(prev => prev.map(cam => 
+            cam.id === cameraId ? { ...cam, active: true, status: 'online' } : cam
+        ));
+        return;
+      }
+
+      // Handle Local Hardware Camera
+      const constraints: MediaStreamConstraints = {
+        video: {
+          width: { ideal: CAMERA_WIDTH },
           height: { ideal: CAMERA_HEIGHT },
-          frameRate: { ideal: 15 }
+          frameRate: { ideal: 15 },
+          // CRITICAL FIX: If we have a specific deviceId, use it!
+          deviceId: camera.deviceId ? { exact: camera.deviceId } : undefined
         }
-      });
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       setCameras(prev => prev.map(cam => 
         cam.id === cameraId 
@@ -153,13 +173,17 @@ export default function HSEGuardianAI() {
         video.play().catch(e => console.error("Play error", e));
       }
     } catch (error: any) {
-      console.error('Camera access failed:', error);
+      console.warn('Camera access failed:', error.name, error.message);
       
-      // Specifically handle missing hardware error
       const isNotFoundError = error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError';
-      
+      const isOverconstrained = error.name === 'OverconstrainedError';
+
       setCameras(prev => prev.map(cam =>
-        cam.id === cameraId ? { ...cam, status: isNotFoundError ? 'no-hardware' : 'offline', active: false } : cam
+        cam.id === cameraId ? { 
+            ...cam, 
+            status: (isNotFoundError || isOverconstrained) ? 'no-hardware' : 'offline', 
+            active: false 
+        } : cam
       ));
     }
   }, [cameras]);
@@ -199,29 +223,19 @@ export default function HSEGuardianAI() {
   const processFrame = useCallback((cameraId: string) => {
     if (!processingQueueRef.current.includes(cameraId)) return;
     
-    const video = videoRefs.current.get(cameraId);
-    const canvas = canvasRefs.current.get(cameraId);
-    if (!video || !canvas) return;
+    // Only process simulated frames for now as a demo
+    const camera = cameras.find(c => c.id === cameraId);
+    // Real processing would grab frame from canvas
     
     frameCountRef.current++;
     if (frameCountRef.current % FRAME_SKIP !== 0) return;
     
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    try {
-      ctx.drawImage(video, 0, 0, CAMERA_WIDTH, CAMERA_HEIGHT);
-    } catch (e) {
-      return; 
-    }
-    
-    if (Math.random() > 0.992) { 
+    // Low probability random detection simulation for demo purposes
+    if (Math.random() > 0.995) { 
       const violations = [
         { desc: 'Missing Helmet', type: 'ppe', severity: 'medium' },
-        { desc: 'Missing Vest', type: 'ppe', severity: 'low' },
-        { desc: 'Restricted Area Access', type: 'geofence', severity: 'high' },
+        { desc: 'Restricted Area', type: 'geofence', severity: 'high' },
         { desc: 'Fall Detected', type: 'fall', severity: 'critical' },
-        { desc: 'Running in Zone', type: 'behavior', severity: 'medium' }
       ] as const;
 
       const violation = violations[Math.floor(Math.random() * violations.length)];
@@ -246,13 +260,8 @@ export default function HSEGuardianAI() {
             }
           : cam
       ));
-
-      setSafetyScore(prev => ({
-        ...prev,
-        overall: Math.max(50, prev.overall - 1)
-      }));
     }
-  }, [addDetection]);
+  }, [addDetection, cameras]);
 
   // Animation Loop
   useEffect(() => {
@@ -284,8 +293,11 @@ export default function HSEGuardianAI() {
 
   // AI Report Generation
   const generateAIReport = async () => {
-    if (!process.env.API_KEY) {
-      setReportContent("Critical Error: AI processing requires an Enterprise API Key. System administrator has been notified.");
+    const storedKey = localStorage.getItem('gemini_api_key');
+    const apiKey = storedKey || process.env.API_KEY;
+
+    if (!apiKey) {
+      setReportContent("Critical Error: AI processing requires an Enterprise API Key.\nPlease go to 'Input Config' > 'AI Settings' to enter your key.");
       setIsReportOpen(true);
       return;
     }
@@ -295,36 +307,21 @@ export default function HSEGuardianAI() {
     setReportContent("");
 
     try {
-      // Re-initialize for every call to ensure the latest key is used if it changed
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
-      // Prepare the log data with explicit location information
+      const ai = new GoogleGenAI({ apiKey });
       const logData = detections.slice(0, 20).map(d => {
         const cam = cameras.find(c => c.id === d.cameraId);
         return `- Incident: ${d.description} (${d.severity}) | Camera: ${cam?.name || d.cameraId} | Location: ${cam?.location || 'Unknown'}`;
       }).join('\n');
 
-      // FIXED: Using 'gemini-3-flash-preview' instead of deprecated names
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `You are an expert Industrial Safety Officer. Generate a concise but professional shift report based on the following recent detected incidents.
-        
-        CRITICAL INSTRUCTION: For every incident you mention, you MUST explicitly state the Camera Name and the specific Factory Location (Zone/Section).
-        
-        Incident Log:
-        ${logData}
-        
-        Format the report with a summary of risks followed by specific actionable items per location.`
+        contents: `Generate a concise industrial safety shift report based on these incidents:\n${logData}`
       });
 
-      if (!response.text) {
-        throw new Error("The AI model returned an empty response.");
-      }
-
+      if (!response.text) throw new Error("Empty response");
       setReportContent(response.text);
     } catch (error: any) {
-      console.error("AI Generation Error:", error);
-      setReportContent(`Report Generation Failed: ${error.message || 'Unknown provider error'}.\n\nPlease ensure your API Key is valid and the 'gemini-3-flash-preview' model is enabled for your project.`);
+      setReportContent(`Failed to generate report: ${error.message}`);
     } finally {
       setIsGeneratingReport(false);
     }
@@ -391,16 +388,20 @@ export default function HSEGuardianAI() {
                   <Activity className="w-3 h-3" /> System Status
                 </span>
                 <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                <span className={perfMetrics.fps < 20 ? 'text-rose-400' : ''}>FPS: {perfMetrics.fps}</span>
-                <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                <span className={perfMetrics.memory > 500 ? 'text-amber-400' : ''}>Mem: {perfMetrics.memory}MB</span>
-                <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                <span>v2.4.1 (Enterprise)</span>
+                <span>FPS: {perfMetrics.fps}</span>
               </div>
             </div>
           </div>
           
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4">
+             <button 
+               onClick={() => setIsConfigOpen(true)}
+               className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition-colors"
+             >
+               <Settings2 className="w-4 h-4" />
+               Input Config
+             </button>
+             <div className="h-8 w-px bg-slate-800"></div>
              <div className="flex flex-col items-end">
                <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Safety Score</span>
                <div className="flex items-baseline gap-1">
@@ -408,20 +409,6 @@ export default function HSEGuardianAI() {
                    safetyScore.overall >= 90 ? 'text-emerald-500' :
                    safetyScore.overall >= 70 ? 'text-amber-500' : 'text-rose-500'
                  }`}>{Math.floor(safetyScore.overall)}</span>
-                 <span className="text-xs text-slate-500">/ 100</span>
-               </div>
-             </div>
-             <div className="h-8 w-px bg-slate-800"></div>
-             <div className="flex gap-4">
-               <div className="text-center">
-                 <div className="text-xs text-slate-500 uppercase">Active</div>
-                 <div className="text-lg font-bold text-white">{stats.activeCameras}</div>
-               </div>
-               <div className="text-center">
-                 <div className="text-xs text-slate-500 uppercase">Risks</div>
-                 <div className={`text-lg font-bold ${stats.highRiskCameras > 0 ? 'text-rose-500' : 'text-slate-300'}`}>
-                   {stats.highRiskCameras}
-                 </div>
                </div>
              </div>
           </div>
@@ -513,31 +500,23 @@ export default function HSEGuardianAI() {
                 detections.map(det => {
                   const cam = cameras.find(c => c.id === det.cameraId);
                   const styles = getDetectionStyles(det.severity);
-                  
                   return (
                     <div 
                       key={det.id} 
                       onClick={() => handleCameraSelect(det.cameraId)}
                       className={`p-3 rounded-lg border text-sm transition-all duration-300 relative overflow-hidden pl-4 cursor-pointer hover:ring-2 hover:ring-white/10 ${styles.card}`}
                     >
-                      {/* Severity Sidebar Indicator */}
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${styles.indicator}`}></div>
-                      
                       <div className="flex justify-between items-start mb-1">
                         <span className="font-semibold">{det.description}</span>
                         <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded border ${styles.badge}`}>
                           {det.severity}
                         </span>
                       </div>
-                      
-                      <div className="flex justify-between items-start mb-1 text-xs opacity-80">
-                        <span className="uppercase tracking-wide">{det.type}</span>
-                      </div>
-
                       <div className="flex justify-between items-start text-xs opacity-70 mt-2 border-t border-white/10 pt-2">
                         <div className="flex flex-col">
                           <span className="font-medium text-white/90">{cam?.name || det.cameraId}</span>
-                          <span className="text-[10px] uppercase tracking-wide opacity-80">{cam?.location || 'Unknown Location'}</span>
+                          <span className="text-[10px] uppercase tracking-wide opacity-80">{cam?.location || 'Unknown'}</span>
                         </div>
                         <span className="whitespace-nowrap ml-2">{new Date(det.timestamp).toLocaleTimeString()}</span>
                       </div>
@@ -546,34 +525,10 @@ export default function HSEGuardianAI() {
                 })
               )}
             </div>
-
-            <div className="p-4 bg-slate-950 border-t border-slate-800">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Compliance Overview</h3>
-              <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-400">PPE Compliance</span>
-                    <span className="text-emerald-500">{safetyScore.ppe}%</span>
-                  </div>
-                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${safetyScore.ppe}%` }}></div>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-400">Behavioral Safety</span>
-                    <span className="text-blue-500">{safetyScore.behavior}%</span>
-                  </div>
-                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${safetyScore.behavior}%` }}></div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </aside>
         </main>
 
-        {/* AI Report Modal */}
+        {/* Modals */}
         {isReportOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
@@ -582,46 +537,30 @@ export default function HSEGuardianAI() {
                   <FileText className="w-5 h-5 text-blue-500" />
                   AI Shift Incident Report
                 </h3>
-                <button 
-                  onClick={() => setIsReportOpen(false)}
-                  className="text-slate-400 hover:text-white transition-colors"
-                >
+                <button onClick={() => setIsReportOpen(false)} className="text-slate-400 hover:text-white">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              
               <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-slate-950/50 font-mono text-sm leading-relaxed">
                 {isGeneratingReport ? (
                   <div className="flex flex-col items-center justify-center h-48 space-y-4">
                     <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                    <p className="text-slate-400 animate-pulse text-center">Synthesizing Safety Data via Gemini Intelligence Engine...</p>
+                    <p className="text-slate-400 animate-pulse text-center">Synthesizing Safety Data via Gemini...</p>
                   </div>
                 ) : (
-                  <div className="prose prose-invert max-w-none whitespace-pre-wrap">
-                    {reportContent}
-                  </div>
+                  <div className="prose prose-invert max-w-none whitespace-pre-wrap">{reportContent}</div>
                 )}
-              </div>
-
-              <div className="p-4 border-t border-slate-800 flex justify-end gap-3 bg-slate-900 rounded-b-xl">
-                <button
-                  onClick={() => setIsReportOpen(false)}
-                  className="px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(reportContent);
-                  }}
-                  disabled={isGeneratingReport || !reportContent}
-                  className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Copy to Clipboard
-                </button>
               </div>
             </div>
           </div>
+        )}
+
+        {isConfigOpen && (
+          <CameraSetupModal
+            cameras={cameras}
+            onUpdateCameras={setCameras}
+            onClose={() => setIsConfigOpen(false)}
+          />
         )}
 
         <div className="hidden">

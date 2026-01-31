@@ -17,7 +17,10 @@ export interface CameraDevice {
   riskScore: number;
   lastDetection?: number;
   fps: number;
-  status: 'online' | 'offline' | 'processing' | 'no-hardware';
+  status: 'online' | 'offline' | 'processing' | 'no-hardware' | 'connecting';
+  connectionType: 'simulation' | 'local' | 'network';
+  deviceId?: string; // For local hardware inputs
+  streamUrl?: string; // For IP Cameras (MJPEG/HTTP)
 }
 
 export interface SafetyScore {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Camera, AlertTriangle, MonitorOff } from 'lucide-react';
+import { Camera, AlertTriangle, MonitorOff, Globe } from 'lucide-react';
 import { CameraDevice } from '../types';
 import { VideoPlayer } from './VideoPlayer';
 
@@ -27,19 +27,23 @@ export const CameraGrid: React.FC<CameraGridProps> = ({
         >
           {/* Video Preview */}
           <div className="absolute inset-0 flex items-center justify-center">
-            {cam.active && cam.stream ? (
+            {cam.connectionType === 'network' && cam.streamUrl ? (
+               <div className="w-full h-full bg-black">
+                <VideoPlayer streamUrl={cam.streamUrl} className="w-full h-full object-cover" />
+              </div>
+            ) : cam.active && cam.stream ? (
               <div className="w-full h-full bg-black">
                 <VideoPlayer stream={cam.stream} className="w-full h-full object-cover" />
               </div>
             ) : cam.status === 'no-hardware' ? (
               <div className="flex flex-col items-center justify-center text-rose-500/50">
                 <MonitorOff className="w-10 h-10 mb-2" />
-                <span className="text-[10px] uppercase tracking-[0.2em] font-bold">No Hardware Detected</span>
+                <span className="text-[10px] uppercase tracking-[0.2em] font-bold">No Hardware</span>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center text-slate-600 group-hover:text-slate-500 transition-colors">
-                <Camera className="w-10 h-10 mb-2" />
-                <span className="text-xs uppercase tracking-wider font-semibold">Signal Lost</span>
+                {cam.connectionType === 'network' ? <Globe className="w-10 h-10 mb-2" /> : <Camera className="w-10 h-10 mb-2" />}
+                <span className="text-xs uppercase tracking-wider font-semibold">Offline</span>
               </div>
             )}
           </div>

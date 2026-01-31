@@ -2,10 +2,11 @@ import React, { useEffect, useRef } from 'react';
 
 interface VideoPlayerProps {
   stream?: MediaStream;
+  streamUrl?: string;
   className?: string;
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, className }) => {
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, streamUrl, className }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -13,6 +14,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, className }) =
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
+
+  // Handle Network Stream (MJPEG/Image source)
+  if (streamUrl) {
+    // Basic implementation for MJPEG streams often used in IP cams via HTTP
+    return (
+      <img 
+        src={streamUrl} 
+        className={className} 
+        alt="Live Stream"
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.display = 'none';
+        }} 
+      />
+    );
+  }
 
   return (
     <video
