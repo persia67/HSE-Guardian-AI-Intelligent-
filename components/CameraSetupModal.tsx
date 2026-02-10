@@ -1,14 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, HardDrive, Globe, Plus, Camera, Trash2, Key, Save, Check, ShieldAlert } from 'lucide-react';
-import { CameraDevice } from '../types';
+import { X, RefreshCw, HardDrive, Globe, Plus, Camera, Trash2, Key, Save, Check, Cpu, Download, WifiOff } from 'lucide-react';
+import { CameraDevice, OfflineAIState } from '../types';
 
 interface CameraSetupModalProps {
   cameras: CameraDevice[];
   onUpdateCameras: (cameras: CameraDevice[]) => void;
   onClose: () => void;
+  offlineAI: OfflineAIState;
+  onToggleOfflineAI: (enable: boolean) => void;
 }
 
-export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({ cameras, onUpdateCameras, onClose }) => {
+export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({ 
+  cameras, 
+  onUpdateCameras, 
+  onClose,
+  offlineAI,
+  onToggleOfflineAI
+}) => {
   const [activeTab, setActiveTab] = useState<'local' | 'network' | 'settings'>('local');
   const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
   const [ipForm, setIpForm] = useState({ name: '', location: '', url: '' });
@@ -32,23 +40,15 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({ cameras, onU
     }
 
     try {
-      // 1. Enumerate first to see if any video devices exist
       let devices = await navigator.mediaDevices.enumerateDevices();
+      // Try to get permission to see labels
       const hasVideoInput = devices.some(d => d.kind === 'videoinput');
-
-      // 2. Only request permissions if we detect video inputs
-      // This prevents "Requested device not found" error when no camera exists
-      if (hasVideoInput) {
+      if (hasVideoInput && devices.some(d => d.label === '')) {
         try {
-          // Request permission to get labels
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          // Stop stream immediately as we only needed permissions
           stream.getTracks().forEach(t => t.stop());
-          
-          // Re-enumerate to get devices with labels
           devices = await navigator.mediaDevices.enumerateDevices();
         } catch (permErr: any) {
-          // Gracefully handle permission denial or device access errors
           console.warn("Camera permission denied or device inaccessible:", permErr.message);
         }
       }
@@ -186,19 +186,13 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({ cameras, onU
                     )}
                   </div>
                 ))}
-                {availableDevices.length === 0 && (
-                  <div className="col-span-full py-8 text-center text-slate-500 bg-slate-900/50 border border-dashed border-slate-700 rounded-xl">
-                    <p>No local camera devices found.</p>
-                    <p className="text-xs mt-1">Check connections or use Network Streams.</p>
-                  </div>
-                )}
               </div>
             </div>
           )}
 
           {activeTab === 'network' && (
             <div className="space-y-6">
-              <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 space-y-4">
+               <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 space-y-4">
                 <h4 className="font-bold text-white">Add IP Camera</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <input
@@ -238,15 +232,16 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({ cameras, onU
 
           {activeTab === 'settings' && (
             <div className="space-y-6">
+              {/* Cloud AI Section */}
               <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 space-y-4">
                 <div className="flex items-start gap-4">
                   <div className="bg-amber-500/10 p-3 rounded-xl">
                     <Key className="w-8 h-8 text-amber-500" />
                   </div>
                   <div className="flex-1">
-                    <h4 className="font-bold text-white text-lg">Google Gemini API Configuration</h4>
+                    <h4 className="font-bold text-white text-lg">Cloud AI (Google Gemini)</h4>
                     <p className="text-slate-400 text-sm mt-1">
-                      Enter your Gemini API key to enable AI reporting and analysis. This key will be stored locally in your browser.
+                      Required for generating text reports and deep analysis.
                     </p>
                   </div>
                 </div>
@@ -270,15 +265,76 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({ cameras, onU
                       }`}
                     >
                       {isKeySaved ? <Check className="w-5 h-5" /> : <Save className="w-5 h-5" />}
-                      {isKeySaved ? 'Saved' : 'Save Key'}
+                      {isKeySaved ? 'Saved' : 'Save'}
                     </button>
                   </div>
                 </div>
+              </div>
 
-                <div className="flex items-center gap-2 p-3 bg-blue-900/20 border border-blue-500/20 rounded-lg text-blue-300 text-xs mt-2">
-                   <ShieldAlert className="w-4 h-4 flex-shrink-0" />
-                   <p>Your API key is stored securely in LocalStorage. Clear your browser cache to remove it.</p>
+              {/* Offline AI Core Section */}
+              <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 space-y-4">
+                <div className="flex items-start gap-4">
+                  <div className="bg-blue-500/10 p-3 rounded-xl">
+                    <Cpu className="w-8 h-8 text-blue-500" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-bold text-white text-lg">Offline AI Core (TFJS)</h4>
+                    <p className="text-slate-400 text-sm mt-1">
+                      Download COCO-SSD Model for local person detection.
+                    </p>
+                    <div className="mt-2 text-xs text-rose-400 bg-rose-500/10 p-2 rounded border border-rose-500/20">
+                        <strong>Note:</strong> Standard model detects "Persons" only. It does not detect PPE/Helmets specifically without custom training.
+                    </div>
+                  </div>
                 </div>
+
+                <div className="flex items-center justify-between bg-slate-900 p-4 rounded-lg border border-slate-800">
+                  <div className="flex items-center gap-3">
+                    {offlineAI.isModelLoaded ? (
+                      <div className="w-10 h-10 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center">
+                         <WifiOff className="w-5 h-5" />
+                      </div>
+                    ) : (
+                      <div className="w-10 h-10 bg-slate-800 text-slate-500 rounded-full flex items-center justify-center">
+                         <Download className="w-5 h-5" />
+                      </div>
+                    )}
+                    <div>
+                      <div className="font-bold text-sm text-white">
+                        {offlineAI.isModelLoaded ? 'AI Core Active' : 'Offline Model Not Loaded'}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {offlineAI.isModelLoaded 
+                          ? 'Running locally via WebGL/GPU' 
+                          : 'Requires ~5MB download once'}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => onToggleOfflineAI(!offlineAI.isModelLoaded)}
+                    disabled={offlineAI.isLoading}
+                    className={`px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 transition-all ${
+                      offlineAI.isModelLoaded 
+                        ? 'bg-rose-600/20 text-rose-500 hover:bg-rose-600/30'
+                        : 'bg-blue-600 hover:bg-blue-500 text-white'
+                    }`}
+                  >
+                     {offlineAI.isLoading ? (
+                       <>Loading...</>
+                     ) : offlineAI.isModelLoaded ? (
+                       <>Unload Core</>
+                     ) : (
+                       <>Download Core</>
+                     )}
+                  </button>
+                </div>
+                
+                {offlineAI.isLoading && (
+                   <div className="w-full bg-slate-700 h-1 rounded-full overflow-hidden">
+                     <div className="bg-blue-500 h-full w-full animate-pulse-fast"></div>
+                   </div>
+                )}
               </div>
             </div>
           )}

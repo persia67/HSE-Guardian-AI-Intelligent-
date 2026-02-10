@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, memo } from 'react';
 
 interface VideoPlayerProps {
   stream?: MediaStream;
@@ -6,7 +6,7 @@ interface VideoPlayerProps {
   className?: string;
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, streamUrl, className }) => {
+export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({ stream, streamUrl, className }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -17,7 +17,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, streamUrl, cla
 
   // Handle Network Stream (MJPEG/Image source)
   if (streamUrl) {
-    // Basic implementation for MJPEG streams often used in IP cams via HTTP
     return (
       <img 
         src={streamUrl} 
@@ -39,4 +38,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, streamUrl, cla
       playsInline
     />
   );
-};
+});
+
+VideoPlayer.displayName = 'VideoPlayer';

@@ -1,6 +1,7 @@
+
 export interface Detection {
   id: string;
-  type: 'ppe' | 'behavior' | 'geofence' | 'fall';
+  type: 'ppe' | 'behavior' | 'geofence' | 'fall' | 'person';
   severity: 'low' | 'medium' | 'high' | 'critical';
   description: string;
   bbox?: { x: number; y: number; w: number; h: number };
@@ -18,7 +19,7 @@ export interface CameraDevice {
   lastDetection?: number;
   fps: number;
   status: 'online' | 'offline' | 'processing' | 'no-hardware' | 'connecting';
-  connectionType: 'simulation' | 'local' | 'network';
+  connectionType: 'local' | 'network'; // Removed 'simulation'
   deviceId?: string; // For local hardware inputs
   streamUrl?: string; // For IP Cameras (MJPEG/HTTP)
 }
@@ -28,4 +29,11 @@ export interface SafetyScore {
   ppe: number;
   behavior: number;
   environment: number;
+}
+
+export interface OfflineAIState {
+  isEnabled: boolean;
+  isModelLoaded: boolean;
+  isLoading: boolean;
+  modelName: string;
 }

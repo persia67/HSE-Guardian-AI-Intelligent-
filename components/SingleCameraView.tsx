@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, Info, Maximize, Settings, ShieldAlert, Activity, Crosshair, Target } from 'lucide-react';
+import { ChevronLeft, Info, Maximize, Settings, ShieldAlert, Activity, Crosshair, Target, Sparkles } from 'lucide-react';
 import { CameraDevice } from '../types';
 import { VideoPlayer } from './VideoPlayer';
 
 interface SingleCameraViewProps {
   camera: CameraDevice;
   onBack: () => void;
+  onAnalyze: (cameraId: string) => void;
 }
 
-export const SingleCameraView: React.FC<SingleCameraViewProps> = ({ camera, onBack }) => {
+export const SingleCameraView: React.FC<SingleCameraViewProps> = ({ camera, onBack, onAnalyze }) => {
   const [isFocusing, setIsFocusing] = useState(false);
   const [focusComplete, setFocusComplete] = useState(false);
 
@@ -78,6 +79,17 @@ export const SingleCameraView: React.FC<SingleCameraViewProps> = ({ camera, onBa
                 ))}
               </div>
             </div>
+            
+            {/* AI Deep Scan Button */}
+            <button 
+              onClick={() => onAnalyze(camera.id)}
+              className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg border border-indigo-400/50 shadow-lg shadow-indigo-900/20 transition-all font-bold text-xs uppercase tracking-wider"
+              title="Analyze Video with Gemini Pro"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>AI Deep Scan</span>
+            </button>
+
             <button 
               onClick={performAutoFocus}
               className={`p-2 bg-slate-800/80 hover:bg-slate-700 rounded-lg text-white border border-slate-700/50 transition-all ${isFocusing ? 'animate-pulse text-blue-400' : ''}`}
@@ -85,7 +97,6 @@ export const SingleCameraView: React.FC<SingleCameraViewProps> = ({ camera, onBa
             >
               <Target className="w-5 h-5" />
             </button>
-            <button className="p-2 bg-slate-800/80 hover:bg-slate-700 rounded-lg text-white border border-slate-700/50"><Settings className="w-5 h-5" /></button>
           </div>
         </div>
       </div>

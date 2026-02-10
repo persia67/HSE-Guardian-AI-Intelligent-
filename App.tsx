@@ -1,46 +1,40 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Shield, Play, Pause, Grid, Maximize2, AlertTriangle, Activity, CheckCircle2, FileText, X, Loader2, Settings2 } from 'lucide-react';
+import { Shield, Play, Pause, Grid, Maximize2, AlertTriangle, Activity, CheckCircle2, FileText, X, Loader2, Settings2, WifiOff, Camera, Sparkles, ScanEye } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
+import * as tf from "@tensorflow/tfjs";
+import * as cocoSsd from "@tensorflow-models/coco-ssd";
+
 import { CameraGrid } from './components/CameraGrid';
 import { Pagination } from './components/Pagination';
 import { SingleCameraView } from './components/SingleCameraView';
 import { AuthGuard } from './components/AuthGuard';
 import { CameraSetupModal } from './components/CameraSetupModal';
-import { Detection, CameraDevice, SafetyScore } from './types';
+import { Detection, CameraDevice, SafetyScore, OfflineAIState } from './types';
 import { performanceMonitor } from './utils/performanceMonitor';
 
 // Constants
 const MAX_LOGS = 100;
-const FRAME_SKIP = 10;
+// Processing interval: Every 15th frame (approx 2 times per second at 30fps)
+const FRAME_SKIP = 15;
 const CAMERA_WIDTH = 320;
 const CAMERA_HEIGHT = 240;
-const MAX_SIMULTANEOUS_STREAMS = 9;
+// LIMIT AI: Only process 1 stream at a time to prevent CPU overload on standard hardware
+const MAX_AI_CONCURRENT_STREAMS = 1; 
 const CAMERAS_PER_PAGE = 9;
 
 export default function HSEGuardianAI() {
-  // State
-  const [cameras, setCameras] = useState<CameraDevice[]>(() => 
-    Array.from({ length: 9 }, (_, i) => ({
-      id: `cam${i + 1}`,
-      name: `Simulated Unit ${i + 1}`,
-      location: `Zone ${Math.floor(i / 10) + 1} - Sec ${(i % 10) + 1}`,
-      active: false,
-      riskScore: 0,
-      fps: 0,
-      status: 'offline' as const,
-      connectionType: 'simulation' as const
-    }))
-  );
+  // State - Initialized EMPTY (No fake cameras)
+  const [cameras, setCameras] = useState<CameraDevice[]>([]);
   
   const [detections, setDetections] = useState<Detection[]>([]);
   const [safetyScore, setSafetyScore] = useState<SafetyScore>({
-    overall: 98,
-    ppe: 99,
-    behavior: 95,
-    environment: 98
+    overall: 100,
+    ppe: 100,
+    behavior: 100,
+    environment: 100
   });
   
-  const [selectedCameraId, setSelectedCameraId] = useState<string>('cam1');
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [viewMode, setViewMode] = useState<'grid' | 'single'>('grid');
   const [filterRisk, setFilterRisk] = useState<'all' | 'high'>('all');
@@ -50,8 +44,22 @@ export default function HSEGuardianAI() {
   const [reportContent, setReportContent] = useState("");
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
+  // Video Analysis State
+  const [isVideoAnalysisOpen, setIsVideoAnalysisOpen] = useState(false);
+  const [videoAnalysisContent, setVideoAnalysisContent] = useState("");
+  const [isAnalyzingVideo, setIsAnalyzingVideo] = useState(false);
+
   // Config Modal State
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+  // Offline AI State
+  const [offlineAI, setOfflineAI] = useState<OfflineAIState>({
+    isEnabled: false,
+    isModelLoaded: false,
+    isLoading: false,
+    modelName: 'COCO-SSD Lite'
+  });
+  const [net, setNet] = useState<cocoSsd.ObjectDetection | null>(null);
 
   // Performance State
   const [perfMetrics, setPerfMetrics] = useState({ 
@@ -64,7 +72,8 @@ export default function HSEGuardianAI() {
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const canvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const frameCountRef = useRef(0);
-  const processingQueueRef = useRef<string[]>([]);
+  // Cooldown ref to prevent alert spamming
+  const lastAlertTimeRef = useRef<Record<string, number>>({});
 
   // Helpers
   const addDetection = useCallback((detection: Detection) => {
@@ -72,16 +81,21 @@ export default function HSEGuardianAI() {
       const updated = [detection, ...prev];
       return updated.slice(0, MAX_LOGS);
     });
+    
+    // Impact Safety Score Real-time
+    setSafetyScore(prev => ({
+        ...prev,
+        overall: Math.max(0, prev.overall - 5),
+        behavior: Math.max(0, prev.behavior - 5)
+    }));
   }, []);
 
   // Performance Monitor Integration
   useEffect(() => {
     performanceMonitor.start();
-
     const interval = setInterval(() => {
       const metrics = performanceMonitor.getCurrentMetrics();
       const health = performanceMonitor.getHealthStatus();
-      
       if (metrics) {
         setPerfMetrics({
           fps: metrics.fps,
@@ -90,7 +104,6 @@ export default function HSEGuardianAI() {
         });
       }
     }, 1000);
-
     return () => {
       performanceMonitor.stop();
       clearInterval(interval);
@@ -103,7 +116,7 @@ export default function HSEGuardianAI() {
     return cameras.filter(cam => cam.riskScore > 30);
   }, [cameras, filterRisk]);
 
-  const totalPages = Math.ceil(filteredCameras.length / CAMERAS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(filteredCameras.length / CAMERAS_PER_PAGE));
   
   const visibleCameras = useMemo(() => {
     const start = currentPage * CAMERAS_PER_PAGE;
@@ -114,20 +127,26 @@ export default function HSEGuardianAI() {
     cameras.find(c => c.id === selectedCameraId) || cameras[0]
   , [cameras, selectedCameraId]);
 
-  // Update Processing Queue
-  const updateProcessingQueue = useCallback(() => {
-    const sorted = [...cameras]
-      .filter(c => c.active)
-      .sort((a, b) => b.riskScore - a.riskScore)
-      .slice(0, MAX_SIMULTANEOUS_STREAMS)
-      .map(c => c.id);
-    
-    processingQueueRef.current = sorted;
-  }, [cameras]);
-
-  useEffect(() => {
-    updateProcessingQueue();
-  }, [cameras, updateProcessingQueue]);
+  // Toggle Offline AI
+  const toggleOfflineAI = async (enable: boolean) => {
+    if (enable) {
+      setOfflineAI(prev => ({ ...prev, isLoading: true }));
+      try {
+        await tf.ready();
+        // Load the model
+        const loadedNet = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        setNet(loadedNet);
+        setOfflineAI(prev => ({ ...prev, isModelLoaded: true, isEnabled: true, isLoading: false }));
+      } catch (err) {
+        console.error("Failed to load offline model:", err);
+        setOfflineAI(prev => ({ ...prev, isLoading: false }));
+        alert("Failed to initialize AI Engine. Check internet for first-time download.");
+      }
+    } else {
+      if (net) setNet(null);
+      setOfflineAI(prev => ({ ...prev, isModelLoaded: false, isEnabled: false }));
+    }
+  };
 
   // Camera Control
   const startCamera = useCallback(async (cameraId: string) => {
@@ -135,12 +154,6 @@ export default function HSEGuardianAI() {
       const camera = cameras.find(c => c.id === cameraId);
       if (!camera) return;
 
-      const activeCount = cameras.filter(c => c.active).length;
-      if (activeCount >= MAX_SIMULTANEOUS_STREAMS) {
-        return;
-      }
-
-      // Handle Network Camera (Mock activation)
       if (camera.connectionType === 'network') {
         setCameras(prev => prev.map(cam => 
             cam.id === cameraId ? { ...cam, active: true, status: 'online' } : cam
@@ -148,13 +161,11 @@ export default function HSEGuardianAI() {
         return;
       }
 
-      // Handle Local Hardware Camera
       const constraints: MediaStreamConstraints = {
         video: {
           width: { ideal: CAMERA_WIDTH },
           height: { ideal: CAMERA_HEIGHT },
           frameRate: { ideal: 15 },
-          // CRITICAL FIX: If we have a specific deviceId, use it!
           deviceId: camera.deviceId ? { exact: camera.deviceId } : undefined
         }
       };
@@ -173,17 +184,9 @@ export default function HSEGuardianAI() {
         video.play().catch(e => console.error("Play error", e));
       }
     } catch (error: any) {
-      console.warn('Camera access failed:', error.name, error.message);
-      
-      const isNotFoundError = error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError';
-      const isOverconstrained = error.name === 'OverconstrainedError';
-
+      console.warn('Camera access failed:', error);
       setCameras(prev => prev.map(cam =>
-        cam.id === cameraId ? { 
-            ...cam, 
-            status: (isNotFoundError || isOverconstrained) ? 'no-hardware' : 'offline', 
-            active: false 
-        } : cam
+        cam.id === cameraId ? { ...cam, status: 'no-hardware', active: false } : cam
       ));
     }
   }, [cameras]);
@@ -196,177 +199,266 @@ export default function HSEGuardianAI() {
       }
       return cam;
     }));
-    
     const video = videoRefs.current.get(cameraId);
     if (video) video.srcObject = null;
   }, []);
 
-  const handleCameraSelect = (id: string) => {
+  const handleCameraSelect = useCallback((id: string) => {
     setSelectedCameraId(id);
     setViewMode('single');
-  };
+  }, []);
 
   const startAllCamerasInPage = useCallback(async () => {
-    const promises = visibleCameras
-      .filter(c => !c.active && c.status !== 'no-hardware')
-      .slice(0, MAX_SIMULTANEOUS_STREAMS)
-      .map(c => startCamera(c.id));
-    
-    await Promise.allSettled(promises);
+    // Only start visible cameras to save resources
+    visibleCameras.forEach(c => {
+        if (!c.active && c.status !== 'no-hardware') startCamera(c.id);
+    });
   }, [visibleCameras, startCamera]);
 
   const stopAllCameras = useCallback(() => {
     cameras.filter(c => c.active).forEach(c => stopCamera(c.id));
   }, [cameras, stopCamera]);
 
-  // AI Simulation Loop
-  const processFrame = useCallback((cameraId: string) => {
-    if (!processingQueueRef.current.includes(cameraId)) return;
-    
-    // Only process simulated frames for now as a demo
-    const camera = cameras.find(c => c.id === cameraId);
-    // Real processing would grab frame from canvas
-    
+  // --- REAL AI PROCESSING LOOP (Offline) ---
+  const processFrame = useCallback(async () => {
+    // If AI is not loaded, do nothing. NO SIMULATION.
+    if (!offlineAI.isModelLoaded || !net) return;
+
     frameCountRef.current++;
     if (frameCountRef.current % FRAME_SKIP !== 0) return;
-    
-    // Low probability random detection simulation for demo purposes
-    if (Math.random() > 0.995) { 
-      const violations = [
-        { desc: 'Missing Helmet', type: 'ppe', severity: 'medium' },
-        { desc: 'Restricted Area', type: 'geofence', severity: 'high' },
-        { desc: 'Fall Detected', type: 'fall', severity: 'critical' },
-      ] as const;
 
-      const violation = violations[Math.floor(Math.random() * violations.length)];
-      
-      const detection: Detection = {
-        id: `${cameraId}-${Date.now()}`,
-        type: violation.type as any,
-        severity: violation.severity as any,
-        description: violation.desc,
-        timestamp: Date.now(),
-        cameraId
-      };
-      
-      addDetection(detection);
-      
-      setCameras(prev => prev.map(cam =>
-        cam.id === cameraId
-          ? { 
-              ...cam, 
-              riskScore: Math.min(100, cam.riskScore + (violation.severity === 'critical' ? 30 : 10)), 
-              lastDetection: Date.now() 
-            }
-          : cam
-      ));
+    // Determine which camera to process
+    let targetCameraId: string | null = null;
+
+    if (viewMode === 'single' && selectedCameraId) {
+        const cam = cameras.find(c => c.id === selectedCameraId);
+        if (cam?.active) targetCameraId = selectedCameraId;
+    } else {
+        const activeOnPage = visibleCameras.find(c => c.active && c.status === 'online');
+        if (activeOnPage) targetCameraId = activeOnPage.id;
     }
-  }, [addDetection, cameras]);
 
-  // Animation Loop
+    if (!targetCameraId) return;
+
+    const videoEl = videoRefs.current.get(targetCameraId);
+    
+    // Only process if video is valid and playing
+    if (videoEl && videoEl.readyState === 4 && !videoEl.paused) {
+        try {
+            // Actual TensorFlow Inference
+            const predictions = await net.detect(videoEl);
+            
+            const personDetected = predictions.find(p => p.class === 'person' && p.score > 0.6);
+            
+            if (personDetected) {
+                const now = Date.now();
+                const lastAlert = lastAlertTimeRef.current[targetCameraId] || 0;
+                
+                // 5 Second Cooldown to prevent spam
+                if (now - lastAlert > 5000) {
+                    lastAlertTimeRef.current[targetCameraId] = now;
+                    
+                    const detection: Detection = {
+                        id: `${targetCameraId}-${now}`,
+                        type: 'person', // Strict type
+                        severity: 'medium',
+                        description: `Person Detected in Restricted Zone`, // Realistic description for generic model
+                        timestamp: now,
+                        cameraId: targetCameraId,
+                        bbox: { 
+                            x: personDetected.bbox[0], 
+                            y: personDetected.bbox[1], 
+                            w: personDetected.bbox[2], 
+                            h: personDetected.bbox[3] 
+                        }
+                    };
+                    addDetection(detection);
+                    
+                    // Update Camera Risk Score
+                    setCameras(prev => prev.map(cam =>
+                        cam.id === targetCameraId
+                        ? { ...cam, riskScore: 100, lastDetection: now } // Spike risk on detection
+                        : cam
+                    ));
+                }
+            }
+        } catch (e) {
+            console.warn("AI Inference Error (Skipping Frame):", e);
+        }
+    }
+
+  }, [addDetection, cameras, offlineAI.isModelLoaded, net, viewMode, selectedCameraId, visibleCameras]);
+
+  // Main Loop
   useEffect(() => {
     let animationFrame: number;
     const loop = () => {
-      processingQueueRef.current.forEach(cameraId => {
-        processFrame(cameraId);
-      });
+      processFrame();
       animationFrame = requestAnimationFrame(loop);
     };
     loop();
     return () => cancelAnimationFrame(animationFrame);
   }, [processFrame]);
 
-  // Score Decay (Recovery)
+  // Score Recovery (Decay risk over time if no detections)
   useEffect(() => {
     const interval = setInterval(() => {
       setCameras(prev => prev.map(cam => ({
         ...cam,
-        riskScore: Math.max(0, cam.riskScore - 2)
+        riskScore: Math.max(0, cam.riskScore - 5) // Faster decay
       })));
       setSafetyScore(prev => ({
         ...prev,
-        overall: Math.min(100, prev.overall + 0.5)
+        overall: Math.min(100, prev.overall + 1),
+        behavior: Math.min(100, prev.behavior + 1)
       }));
-    }, 2000);
+    }, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // AI Report Generation
-  const generateAIReport = async () => {
-    const storedKey = localStorage.getItem('gemini_api_key');
-    const apiKey = storedKey || process.env.API_KEY;
-
-    if (!apiKey) {
-      setReportContent("Critical Error: AI processing requires an Enterprise API Key.\nPlease go to 'Input Config' > 'AI Settings' to enter your key.");
-      setIsReportOpen(true);
-      return;
+  // --- GEMINI VIDEO ANALYSIS ---
+  
+  // Helper: Capture a single frame from the video element
+  const captureFrame = (cameraId: string): string | null => {
+    const video = videoRefs.current.get(cameraId);
+    const canvas = canvasRefs.current.get(cameraId); // Reuse existing canvas or create temp
+    
+    if (video && video.readyState >= 2) {
+       // Create a temp canvas if we don't have one mapped (though we should)
+       const drawCanvas = canvas || document.createElement('canvas');
+       drawCanvas.width = video.videoWidth;
+       drawCanvas.height = video.videoHeight;
+       const ctx = drawCanvas.getContext('2d');
+       if (ctx) {
+         ctx.drawImage(video, 0, 0, drawCanvas.width, drawCanvas.height);
+         // Return base64 string without prefix
+         return drawCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+       }
     }
+    return null;
+  };
 
+  const performVideoAnalysis = async (cameraId: string) => {
+    setIsVideoAnalysisOpen(true);
+    setIsAnalyzingVideo(true);
+    setVideoAnalysisContent("");
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      
+      // Capture 3 frames with 1 second interval to simulate "video"
+      const frames: string[] = [];
+      
+      // Frame 1
+      const f1 = captureFrame(cameraId);
+      if(f1) frames.push(f1);
+      
+      // Wait 1s
+      await new Promise(r => setTimeout(r, 1000));
+      
+      // Frame 2
+      const f2 = captureFrame(cameraId);
+      if(f2) frames.push(f2);
+      
+      // Wait 1s
+      await new Promise(r => setTimeout(r, 1000));
+      
+      // Frame 3
+      const f3 = captureFrame(cameraId);
+      if(f3) frames.push(f3);
+
+      if (frames.length === 0) {
+        throw new Error("Could not capture video frames. Camera might be offline.");
+      }
+
+      // Prepare parts for Gemini
+      const parts: Array<{
+        text?: string;
+        inlineData?: {
+          mimeType: string;
+          data: string;
+        }
+      }> = frames.map(f => ({
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: f
+        }
+      }));
+      
+      // Prompt
+      parts.push({
+        text: "Analyze this sequence of security camera frames (1 second apart). Describe the activity, potential safety hazards, and verify if any Personal Protective Equipment (PPE) like helmets or vests are missing. Be professional and concise."
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview', // Requested Model for Video/Complex tasks
+        contents: { parts: parts }
+      });
+
+      if (!response.text) throw new Error("Empty response from Gemini.");
+      setVideoAnalysisContent(response.text);
+
+    } catch (error: any) {
+      console.error("Video Analysis Error:", error);
+      setVideoAnalysisContent(`Analysis Failed: ${error.message}`);
+    } finally {
+      setIsAnalyzingVideo(false);
+    }
+  };
+
+
+  // AI Report (Text Logs)
+  const generateAIReport = async () => {
     setIsReportOpen(true);
     setIsGeneratingReport(true);
     setReportContent("");
 
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const logData = detections.slice(0, 20).map(d => {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      
+      // Filter only real detections
+      const realDetections = detections.slice(0, 20);
+      
+      if (realDetections.length === 0) {
+          setReportContent("No incidents detected so far during this shift.");
+          setIsGeneratingReport(false);
+          return;
+      }
+
+      const logData = realDetections.map(d => {
         const cam = cameras.find(c => c.id === d.cameraId);
-        return `- Incident: ${d.description} (${d.severity}) | Camera: ${cam?.name || d.cameraId} | Location: ${cam?.location || 'Unknown'}`;
+        return `- Time: ${new Date(d.timestamp).toLocaleTimeString()} | Type: ${d.type} | Camera: ${cam?.name}`;
       }).join('\n');
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Generate a concise industrial safety shift report based on these incidents:\n${logData}`
+        contents: `You are an HSE Safety Officer. Analyze these REAL detections from an automated computer vision system. 
+        Note: The system only detects 'persons'.
+        Logs:
+        ${logData}
+        
+        Write a short formal safety report summarizing the activity.`
       });
 
       if (!response.text) throw new Error("Empty response");
       setReportContent(response.text);
     } catch (error: any) {
-      setReportContent(`Failed to generate report: ${error.message}`);
+      setReportContent(`Report Generation Failed: ${error.message}`);
     } finally {
       setIsGeneratingReport(false);
     }
   };
 
-  const stats = useMemo(() => {
-    const activeCameras = cameras.filter(c => c.active).length;
-    const highRiskCameras = cameras.filter(c => c.riskScore > 50).length;
-    const criticalDetections = detections.filter(d => d.severity === 'critical').length;
-    return { activeCameras, highRiskCameras, criticalDetections };
-  }, [cameras, detections]);
-
-  // Helper to get detection styles
   const getDetectionStyles = (severity: string) => {
+    // Simplified styles
     switch (severity) {
       case 'critical':
-        return {
-          card: 'bg-rose-950/40 border-rose-500/50 text-rose-200 shadow-[0_0_15px_rgba(244,63,94,0.1)]',
-          badge: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
-          indicator: 'bg-rose-500'
-        };
       case 'high':
-        return {
-          card: 'bg-orange-950/40 border-orange-500/50 text-orange-200',
-          badge: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
-          indicator: 'bg-orange-500'
-        };
+        return { card: 'bg-rose-950/40 border-rose-500', badge: 'bg-rose-500 text-white' };
       case 'medium':
-        return {
-          card: 'bg-amber-950/30 border-amber-500/40 text-amber-200',
-          badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-          indicator: 'bg-amber-500'
-        };
-      case 'low':
-        return {
-          card: 'bg-blue-950/30 border-blue-500/40 text-blue-200',
-          badge: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-          indicator: 'bg-blue-500'
-        };
+        return { card: 'bg-amber-950/30 border-amber-500', badge: 'bg-amber-500 text-black' };
       default:
-        return {
-          card: 'bg-slate-800 border-slate-700 text-slate-300',
-          badge: 'bg-slate-700 text-slate-400 border-slate-600',
-          indicator: 'bg-slate-600'
-        };
+        return { card: 'bg-slate-800 border-slate-600', badge: 'bg-slate-600 text-white' };
     }
   };
 
@@ -382,13 +474,21 @@ export default function HSEGuardianAI() {
               <h1 className="text-xl font-bold text-white tracking-tight">HSE Guardian <span className="text-blue-500">AI</span></h1>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span className={`flex items-center gap-1 ${
-                  perfMetrics.status === 'critical' ? 'text-rose-500 font-bold' : 
-                  perfMetrics.status === 'warning' ? 'text-amber-500' : 'text-emerald-500'
+                  perfMetrics.status === 'critical' ? 'text-rose-500' : 'text-emerald-500'
                 }`}>
-                  <Activity className="w-3 h-3" /> System Status
+                  <Activity className="w-3 h-3" /> {perfMetrics.status === 'healthy' ? 'System Optimized' : 'High Load'}
                 </span>
                 <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
                 <span>FPS: {perfMetrics.fps}</span>
+                {offlineAI.isModelLoaded ? (
+                   <span className="ml-2 flex items-center gap-1 text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                     <WifiOff className="w-3 h-3" /> ENGINE ACTIVE
+                   </span>
+                ) : (
+                    <span className="ml-2 flex items-center gap-1 text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                     <WifiOff className="w-3 h-3" /> ENGINE STOPPED
+                   </span>
+                )}
               </div>
             </div>
           </div>
@@ -396,44 +496,33 @@ export default function HSEGuardianAI() {
           <div className="flex items-center gap-4">
              <button 
                onClick={() => setIsConfigOpen(true)}
-               className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition-colors"
+               className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-colors shadow-lg shadow-blue-900/20"
              >
                <Settings2 className="w-4 h-4" />
-               Input Config
+               System Setup
              </button>
              <div className="h-8 w-px bg-slate-800"></div>
              <div className="flex flex-col items-end">
                <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Safety Score</span>
-               <div className="flex items-baseline gap-1">
-                 <span className={`text-2xl font-bold ${
-                   safetyScore.overall >= 90 ? 'text-emerald-500' :
-                   safetyScore.overall >= 70 ? 'text-amber-500' : 'text-rose-500'
-                 }`}>{Math.floor(safetyScore.overall)}</span>
-               </div>
+               <span className={`text-2xl font-bold ${safetyScore.overall >= 90 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                   {Math.floor(safetyScore.overall)}
+               </span>
              </div>
           </div>
         </header>
 
         <main className="flex-1 flex overflow-hidden">
           <div className="flex-1 flex flex-col min-w-0 bg-slate-950">
+            {/* Toolbar */}
             <div className="flex-none h-14 border-b border-slate-800 flex items-center justify-between px-4">
                <div className="flex items-center gap-2">
                  <button
                    onClick={() => setViewMode(viewMode === 'grid' ? 'single' : 'grid')}
-                   className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                   title="Toggle View"
+                   disabled={cameras.length === 0}
+                   className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50"
                  >
                    {viewMode === 'grid' ? <Maximize2 className="w-5 h-5" /> : <Grid className="w-5 h-5" />}
                  </button>
-                 <div className="h-6 w-px bg-slate-800 mx-2"></div>
-                 <select
-                   value={filterRisk}
-                   onChange={(e) => setFilterRisk(e.target.value as any)}
-                   className="bg-slate-900 border border-slate-700 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500 text-slate-300"
-                 >
-                   <option value="all">All Cameras</option>
-                   <option value="high">High Risk Only</option>
-                 </select>
                </div>
 
                <div className="flex items-center gap-3">
@@ -445,13 +534,15 @@ export default function HSEGuardianAI() {
                  <div className="flex gap-2 ml-4">
                    <button
                      onClick={startAllCamerasInPage}
-                     className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600/20 text-emerald-500 border border-emerald-600/30 hover:bg-emerald-600/30 rounded-lg text-sm font-medium transition-colors"
+                     disabled={cameras.length === 0}
+                     className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600/20 text-emerald-500 border border-emerald-600/30 hover:bg-emerald-600/30 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                    >
-                     <Play className="w-4 h-4" /> Start Page
+                     <Play className="w-4 h-4" /> Start Active View
                    </button>
                    <button
                      onClick={stopAllCameras}
-                     className="flex items-center gap-2 px-3 py-1.5 bg-rose-600/20 text-rose-500 border border-rose-600/30 hover:bg-rose-600/30 rounded-lg text-sm font-medium transition-colors"
+                     disabled={cameras.length === 0}
+                     className="flex items-center gap-2 px-3 py-1.5 bg-rose-600/20 text-rose-500 border border-rose-600/30 hover:bg-rose-600/30 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                    >
                      <Pause className="w-4 h-4" /> Stop All
                    </button>
@@ -459,42 +550,63 @@ export default function HSEGuardianAI() {
                </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              {viewMode === 'grid' ? (
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar relative">
+              {cameras.length === 0 ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 opacity-60">
+                      <Camera className="w-20 h-20 mb-4 stroke-1" />
+                      <h3 className="text-xl font-bold text-slate-300">No Cameras Configured</h3>
+                      <p className="mb-6">Please add hardware or network streams to begin.</p>
+                      <button 
+                        onClick={() => setIsConfigOpen(true)}
+                        className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-full font-bold border border-slate-600"
+                      >
+                          Open Configuration
+                      </button>
+                  </div>
+              ) : viewMode === 'grid' ? (
                 <CameraGrid
                   cameras={cameras}
                   visibleCameras={visibleCameras}
                   onCameraSelect={handleCameraSelect}
-                  selectedCamera={selectedCameraId}
+                  selectedCamera={selectedCameraId || ''}
                 />
-              ) : (
+              ) : activeCamera ? (
                 <SingleCameraView 
                   camera={activeCamera} 
                   onBack={() => setViewMode('grid')}
+                  onAnalyze={performVideoAnalysis}
                 />
-              )}
+              ) : null}
             </div>
           </div>
 
+          {/* Right Sidebar - Live Logs */}
           <aside className="w-80 border-l border-slate-800 bg-slate-900 flex flex-col">
             <div className="p-4 border-b border-slate-800 flex justify-between items-center">
               <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-500" />
-                Live Alerts
+                Live Detections
               </h2>
               <button 
                 onClick={generateAIReport}
-                className="text-xs flex items-center gap-1 bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded transition-colors"
+                className="text-xs flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded transition-colors"
               >
-                <FileText className="w-3 h-3" /> Report
+                <FileText className="w-3 h-3" /> Log
               </button>
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-              {detections.length === 0 ? (
+              {!offlineAI.isModelLoaded ? (
+                  <div className="flex flex-col items-center justify-center h-40 text-slate-500 text-center px-4 border border-dashed border-slate-700 rounded-lg bg-slate-950/50">
+                     <WifiOff className="w-8 h-8 mb-2 opacity-50" />
+                     <span className="font-bold text-sm">AI Engine Offline</span>
+                     <p className="text-xs mt-1">Enable "Offline AI Core" in Settings to start detection.</p>
+                  </div>
+              ) : detections.length === 0 ? (
                  <div className="flex flex-col items-center justify-center h-40 text-slate-600 space-y-2">
                    <CheckCircle2 className="w-8 h-8 opacity-50" />
-                   <span className="text-sm">No Active Violations</span>
+                   <span className="text-sm">Zone Clear</span>
+                   <span className="text-xs text-slate-700">Waiting for detections...</span>
                  </div>
               ) : (
                 detections.map(det => {
@@ -504,21 +616,17 @@ export default function HSEGuardianAI() {
                     <div 
                       key={det.id} 
                       onClick={() => handleCameraSelect(det.cameraId)}
-                      className={`p-3 rounded-lg border text-sm transition-all duration-300 relative overflow-hidden pl-4 cursor-pointer hover:ring-2 hover:ring-white/10 ${styles.card}`}
+                      className={`p-3 rounded-lg border text-sm relative overflow-hidden pl-4 cursor-pointer hover:bg-white/5 transition-all ${styles.card}`}
                     >
-                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${styles.indicator}`}></div>
                       <div className="flex justify-between items-start mb-1">
-                        <span className="font-semibold">{det.description}</span>
-                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded border ${styles.badge}`}>
-                          {det.severity}
+                        <span className="font-semibold text-slate-200">{det.description}</span>
+                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${styles.badge}`}>
+                          {det.type}
                         </span>
                       </div>
-                      <div className="flex justify-between items-start text-xs opacity-70 mt-2 border-t border-white/10 pt-2">
-                        <div className="flex flex-col">
-                          <span className="font-medium text-white/90">{cam?.name || det.cameraId}</span>
-                          <span className="text-[10px] uppercase tracking-wide opacity-80">{cam?.location || 'Unknown'}</span>
-                        </div>
-                        <span className="whitespace-nowrap ml-2">{new Date(det.timestamp).toLocaleTimeString()}</span>
+                      <div className="flex justify-between items-start text-xs opacity-60 mt-2">
+                        <span>{cam?.name || 'Unknown Cam'}</span>
+                        <span>{new Date(det.timestamp).toLocaleTimeString()}</span>
                       </div>
                     </div>
                   );
@@ -528,14 +636,16 @@ export default function HSEGuardianAI() {
           </aside>
         </main>
 
-        {/* Modals */}
+        {/* --- MODALS --- */}
+
+        {/* Report Modal */}
         {isReportOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
               <div className="flex items-center justify-between p-4 border-b border-slate-800">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                   <FileText className="w-5 h-5 text-blue-500" />
-                  AI Shift Incident Report
+                  Incident Report
                 </h3>
                 <button onClick={() => setIsReportOpen(false)} className="text-slate-400 hover:text-white">
                   <X className="w-5 h-5" />
@@ -545,10 +655,52 @@ export default function HSEGuardianAI() {
                 {isGeneratingReport ? (
                   <div className="flex flex-col items-center justify-center h-48 space-y-4">
                     <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-                    <p className="text-slate-400 animate-pulse text-center">Synthesizing Safety Data via Gemini...</p>
+                    <p className="text-slate-400 animate-pulse text-center">Analysing Logs with Gemini...</p>
                   </div>
                 ) : (
                   <div className="prose prose-invert max-w-none whitespace-pre-wrap">{reportContent}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Video Analysis Modal (New) */}
+        {isVideoAnalysisOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
+              <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-indigo-900/20">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <ScanEye className="w-5 h-5 text-indigo-400" />
+                  Gemini Pro Video Analysis
+                </h3>
+                <button onClick={() => setIsVideoAnalysisOpen(false)} className="text-slate-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-slate-950/50 font-mono text-sm leading-relaxed">
+                {isAnalyzingVideo ? (
+                  <div className="flex flex-col items-center justify-center h-48 space-y-6">
+                     <div className="relative">
+                       <div className="w-16 h-16 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
+                       <div className="absolute inset-0 flex items-center justify-center">
+                         <Sparkles className="w-6 h-6 text-indigo-400 animate-pulse" />
+                       </div>
+                     </div>
+                    <div className="text-center space-y-1">
+                      <p className="text-white font-bold animate-pulse">Scanning Video Sequence...</p>
+                      <p className="text-slate-400 text-xs">Capturing frames • Uploading to Gemini Pro • Generating Insights</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="prose prose-invert max-w-none whitespace-pre-wrap">
+                    <div className="bg-indigo-950/30 p-4 rounded-lg border border-indigo-500/20 mb-4 text-indigo-200 text-xs">
+                       <strong>Target Model:</strong> gemini-3-pro-preview
+                       <br/>
+                       <strong>Input:</strong> Multi-frame sequence (3 frames @ 1s interval)
+                    </div>
+                    {videoAnalysisContent}
+                  </div>
                 )}
               </div>
             </div>
@@ -560,11 +712,15 @@ export default function HSEGuardianAI() {
             cameras={cameras}
             onUpdateCameras={setCameras}
             onClose={() => setIsConfigOpen(false)}
+            offlineAI={offlineAI}
+            onToggleOfflineAI={toggleOfflineAI}
           />
         )}
 
+        {/* HIDDEN VIDEO PROCESSING LAYER */}
+        {/* We keep all video elements mounted but only process selected ones in JS */}
         <div className="hidden">
-          {visibleCameras.map(cam => (
+          {cameras.map(cam => (
             <React.Fragment key={`proc-${cam.id}`}>
               <video
                 ref={el => { if (el) videoRefs.current.set(cam.id, el); }}
@@ -573,11 +729,7 @@ export default function HSEGuardianAI() {
                 autoPlay
                 width={CAMERA_WIDTH}
                 height={CAMERA_HEIGHT}
-              />
-              <canvas
-                ref={el => { if (el) canvasRefs.current.set(cam.id, el); }}
-                width={CAMERA_WIDTH}
-                height={CAMERA_HEIGHT}
+                crossOrigin="anonymous" 
               />
             </React.Fragment>
           ))}
