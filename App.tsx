@@ -72,7 +72,7 @@ export default function HSEGuardianAI() {
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
   const canvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const frameCountRef = useRef(0);
-  // Cooldown ref to prevent alert spamming
+  // Cooldown ref to prevent alert spamming. Key: "cameraId-detectionType"
   const lastAlertTimeRef = useRef<Record<string, number>>({});
 
   // Helpers
@@ -85,8 +85,9 @@ export default function HSEGuardianAI() {
     // Impact Safety Score Real-time
     setSafetyScore(prev => ({
         ...prev,
-        overall: Math.max(0, prev.overall - 5),
-        behavior: Math.max(0, prev.behavior - 5)
+        overall: Math.max(0, prev.overall - 2),
+        behavior: detection.type === 'behavior' ? Math.max(0, prev.behavior - 5) : prev.behavior,
+        environment: detection.type === 'geofence' ? Math.max(0, prev.environment - 5) : prev.environment
     }));
   }, []);
 
@@ -246,42 +247,82 @@ export default function HSEGuardianAI() {
     if (videoEl && videoEl.readyState === 4 && !videoEl.paused) {
         try {
             // Actual TensorFlow Inference
+            // COCO-SSD returns a list of detected objects: { class: "person", score: 0.9, bbox: [...] }
             const predictions = await net.detect(videoEl);
             
-            const personDetected = predictions.find(p => p.class === 'person' && p.score > 0.6);
-            
-            if (personDetected) {
-                const now = Date.now();
-                const lastAlert = lastAlertTimeRef.current[targetCameraId] || 0;
-                
-                // 5 Second Cooldown to prevent spam
-                if (now - lastAlert > 5000) {
-                    lastAlertTimeRef.current[targetCameraId] = now;
-                    
-                    const detection: Detection = {
-                        id: `${targetCameraId}-${now}`,
-                        type: 'person', // Strict type
-                        severity: 'medium',
-                        description: `Person Detected in Restricted Zone`, // Realistic description for generic model
-                        timestamp: now,
-                        cameraId: targetCameraId,
-                        bbox: { 
-                            x: personDetected.bbox[0], 
-                            y: personDetected.bbox[1], 
-                            w: personDetected.bbox[2], 
-                            h: personDetected.bbox[3] 
-                        }
-                    };
-                    addDetection(detection);
-                    
-                    // Update Camera Risk Score
-                    setCameras(prev => prev.map(cam =>
+            const now = Date.now();
+
+            // Iterate through valid predictions
+            predictions.forEach(prediction => {
+               // Filter low confidence
+               if (prediction.score < 0.6) return;
+
+               let detectionType: Detection['type'] | null = null;
+               let description = '';
+               let severity: Detection['severity'] = 'low';
+               
+               // --- REALISTIC HSE LOGIC MAPPING ---
+               
+               // 1. ACCESS CONTROL (Person)
+               if (prediction.class === 'person') {
+                  detectionType = 'person';
+                  description = 'Person Detected in Monitored Zone';
+                  severity = 'medium';
+               } 
+               // 2. DISTRACTED BEHAVIOR (Phone) - Real Detection
+               else if (prediction.class === 'cell phone') {
+                  detectionType = 'behavior';
+                  description = 'Safety Violation: Mobile Phone Usage';
+                  severity = 'high';
+               }
+               // 3. VEHICLE SAFETY (Trucks/Cars) - Real Detection
+               else if (['truck', 'car', 'bus', 'motorcycle'].includes(prediction.class)) {
+                  detectionType = 'geofence';
+                  description = `Vehicle Detected (${prediction.class.toUpperCase()}) in Pedestrian Area`;
+                  severity = 'high';
+               }
+               // 4. POTENTIAL WEAPON/TOOL HAZARD
+               else if (['knife', 'scissors'].includes(prediction.class)) {
+                  detectionType = 'behavior';
+                  description = `Sharp Object Detected (${prediction.class})`;
+                  severity = 'medium';
+               }
+
+               // If matches a relevant safety class
+               if (detectionType) {
+                  const cooldownKey = `${targetCameraId}-${detectionType}`;
+                  const lastAlert = lastAlertTimeRef.current[cooldownKey] || 0;
+
+                  // 5 Second Cooldown per specific alert type
+                  if (now - lastAlert > 5000) {
+                      lastAlertTimeRef.current[cooldownKey] = now;
+
+                      const detection: Detection = {
+                          id: `${targetCameraId}-${now}-${detectionType}`,
+                          type: detectionType,
+                          severity: severity,
+                          description: `${description} (${Math.round(prediction.score * 100)}%)`,
+                          timestamp: now,
+                          cameraId: targetCameraId,
+                          bbox: { 
+                              x: prediction.bbox[0], 
+                              y: prediction.bbox[1], 
+                              w: prediction.bbox[2], 
+                              h: prediction.bbox[3] 
+                          }
+                      };
+                      addDetection(detection);
+
+                      // Spike Camera Risk Score
+                      setCameras(prev => prev.map(cam =>
                         cam.id === targetCameraId
-                        ? { ...cam, riskScore: 100, lastDetection: now } // Spike risk on detection
+                        ? { ...cam, riskScore: Math.min(100, cam.riskScore + 30), lastDetection: now }
                         : cam
-                    ));
-                }
-            }
+                      ));
+                  }
+               }
+            });
+            
         } catch (e) {
             console.warn("AI Inference Error (Skipping Frame):", e);
         }
@@ -305,12 +346,13 @@ export default function HSEGuardianAI() {
     const interval = setInterval(() => {
       setCameras(prev => prev.map(cam => ({
         ...cam,
-        riskScore: Math.max(0, cam.riskScore - 5) // Faster decay
+        riskScore: Math.max(0, cam.riskScore - 2) // Slower decay for realism
       })));
       setSafetyScore(prev => ({
         ...prev,
-        overall: Math.min(100, prev.overall + 1),
-        behavior: Math.min(100, prev.behavior + 1)
+        overall: Math.min(100, prev.overall + 0.5),
+        behavior: Math.min(100, prev.behavior + 0.5),
+        environment: Math.min(100, prev.environment + 0.5)
       }));
     }, 1000);
     return () => clearInterval(interval);
@@ -433,7 +475,6 @@ export default function HSEGuardianAI() {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `You are an HSE Safety Officer. Analyze these REAL detections from an automated computer vision system. 
-        Note: The system only detects 'persons'.
         Logs:
         ${logData}
         
