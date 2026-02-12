@@ -1,5 +1,6 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from './Icons';
+import { theme } from '../theme';
 
 interface PaginationProps {
   currentPage: number;
@@ -12,26 +13,54 @@ export const Pagination: React.FC<PaginationProps> = ({
   totalPages,
   onPageChange
 }) => {
+  const buttonStyle = (disabled: boolean) => ({
+    padding: '6px',
+    backgroundColor: theme.colors.border,
+    color: theme.colors.textMuted,
+    border: 'none',
+    borderRadius: '4px',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.3 : 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  });
+
   return (
-    <div className="flex items-center justify-center gap-2 bg-slate-900/50 p-1 rounded-lg border border-slate-800">
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '8px',
+      backgroundColor: 'rgba(15, 23, 42, 0.5)',
+      padding: '4px',
+      borderRadius: '8px',
+      border: `1px solid ${theme.colors.border}`
+    }}>
       <button
         onClick={() => onPageChange(Math.max(0, currentPage - 1))}
         disabled={currentPage === 0}
-        className="p-1.5 bg-slate-800 text-slate-300 rounded hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        style={buttonStyle(currentPage === 0)}
       >
-        <ChevronLeft className="w-4 h-4" />
+        <ChevronLeft size={16} />
       </button>
       
-      <span className="text-xs font-medium text-slate-400 min-w-[4rem] text-center select-none">
+      <span style={{
+        fontSize: '12px',
+        fontWeight: 500,
+        color: theme.colors.textMuted,
+        minWidth: '4rem',
+        textAlign: 'center'
+      }}>
         Page {currentPage + 1} / {totalPages}
       </span>
       
       <button
         onClick={() => onPageChange(Math.min(totalPages - 1, currentPage + 1))}
         disabled={currentPage === totalPages - 1}
-        className="p-1.5 bg-slate-800 text-slate-300 rounded hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        style={buttonStyle(currentPage === totalPages - 1)}
       >
-        <ChevronRight className="w-4 h-4" />
+        <ChevronRight size={16} />
       </button>
     </div>
   );

@@ -1,7 +1,8 @@
 import React, { memo } from 'react';
-import { Camera, AlertTriangle, MonitorOff, Globe } from 'lucide-react';
+import { Camera, AlertTriangle, MonitorOff, Globe, Loader2, WifiOff } from './Icons';
 import { CameraDevice } from '../types';
 import { VideoPlayer } from './VideoPlayer';
+import { theme } from '../theme';
 
 interface CameraGridProps {
   cameras: CameraDevice[];
@@ -10,7 +11,6 @@ interface CameraGridProps {
   selectedCamera: string;
 }
 
-// Memoized Card Component to prevent re-rendering all grids when one camera updates
 const CameraCard = memo(({ 
   cam, 
   isSelected, 
@@ -20,63 +20,133 @@ const CameraCard = memo(({
   isSelected: boolean; 
   onSelect: (id: string) => void;
 }) => {
+  
+  const cardStyle: React.CSSProperties = {
+    position: 'relative',
+    aspectRatio: '16/9',
+    backgroundColor: theme.colors.panel,
+    borderRadius: '12px',
+    overflow: 'hidden',
+    cursor: 'pointer',
+    border: isSelected ? `2px solid ${theme.colors.primary}` : `2px solid ${theme.colors.border}`,
+    boxShadow: isSelected ? `0 0 10px ${theme.colors.primary}33` : 'none',
+    transition: 'all 0.3s ease',
+    opacity: cam.status === 'no-hardware' ? 0.6 : 1,
+    filter: cam.status === 'no-hardware' ? 'grayscale(100%)' : 'none',
+    width: '100%',
+    minWidth: '300px',
+    flex: '1 1 300px',
+  };
+
+  const overlayStyle: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000'
+  };
+
+  const infoOverlayStyle: React.CSSProperties = {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    background: 'linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0.6), transparent)',
+    padding: '12px',
+    backdropFilter: 'blur(2px)',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  };
+
+  const getStatusColor = (status: CameraDevice['status']) => {
+    switch (status) {
+      case 'online': return theme.colors.success;
+      case 'processing': return theme.colors.info;
+      case 'connecting': return theme.colors.warning;
+      case 'no-hardware': return theme.colors.textMuted;
+      case 'offline': return theme.colors.danger;
+      default: return theme.colors.textMuted;
+    }
+  };
+
+  const statusColor = getStatusColor(cam.status);
+
   return (
-    <div
-      onClick={() => onSelect(cam.id)}
-      className={`relative aspect-video bg-slate-900 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 border-2 group ${
-        isSelected ? 'border-blue-500 shadow-lg shadow-blue-500/20' : 'border-slate-800 hover:border-slate-600'
-      } ${cam.riskScore > 50 ? 'animate-pulse-danger' : ''} ${cam.status === 'no-hardware' ? 'grayscale opacity-60' : ''}`}
-    >
+    <div onClick={() => onSelect(cam.id)} style={cardStyle}>
       {/* Video Preview */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        {cam.connectionType === 'network' && cam.streamUrl ? (
-           <div className="w-full h-full bg-black">
-            <VideoPlayer streamUrl={cam.streamUrl} className="w-full h-full object-cover" />
-          </div>
-        ) : cam.active && cam.stream ? (
-          <div className="w-full h-full bg-black">
-            <VideoPlayer stream={cam.stream} className="w-full h-full object-cover" />
-          </div>
+      <div style={overlayStyle}>
+        {cam.status === 'online' ? (
+           cam.connectionType === 'network' && cam.streamUrl ? (
+             <VideoPlayer streamUrl={cam.streamUrl} />
+           ) : cam.stream ? (
+             <VideoPlayer stream={cam.stream} />
+           ) : (
+             <div style={{...theme.layout.col, alignItems: 'center', color: theme.colors.warning}}>
+               <Loader2 size={40} className="animate-spin" style={{marginBottom: 8}} />
+               <span style={{fontSize: 12}}>Stream Loading...</span>
+             </div>
+           )
+        ) : cam.status === 'connecting' ? (
+           <div style={{...theme.layout.col, alignItems: 'center', color: theme.colors.warning}}>
+             <Loader2 size={40} className="animate-spin" style={{marginBottom: 8}} />
+             <span style={{fontSize: 10, fontWeight: 'bold', letterSpacing: '0.2em', textTransform: 'uppercase'}}>Connecting</span>
+           </div>
+        ) : cam.status === 'processing' ? (
+           <div style={{...theme.layout.col, alignItems: 'center', color: theme.colors.info}}>
+             <Loader2 size={40} className="animate-spin" style={{marginBottom: 8}} />
+             <span style={{fontSize: 10, fontWeight: 'bold', letterSpacing: '0.2em', textTransform: 'uppercase'}}>Processing</span>
+           </div>
         ) : cam.status === 'no-hardware' ? (
-          <div className="flex flex-col items-center justify-center text-rose-500/50">
-            <MonitorOff className="w-10 h-10 mb-2" />
-            <span className="text-[10px] uppercase tracking-[0.2em] font-bold">No Hardware</span>
+          <div style={{...theme.layout.col, alignItems: 'center', color: theme.colors.danger, opacity: 0.5}}>
+            <MonitorOff size={40} style={{marginBottom: 8}} />
+            <span style={{fontSize: 10, fontWeight: 'bold', letterSpacing: '0.2em', textTransform: 'uppercase'}}>No Hardware</span>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center text-slate-600 group-hover:text-slate-500 transition-colors">
-            {cam.connectionType === 'network' ? <Globe className="w-10 h-10 mb-2" /> : <Camera className="w-10 h-10 mb-2" />}
-            <span className="text-xs uppercase tracking-wider font-semibold">Offline</span>
+          <div style={{...theme.layout.col, alignItems: 'center', color: theme.colors.textMuted}}>
+            {cam.connectionType === 'network' ? <Globe size={40} style={{marginBottom: 8}} /> : <Camera size={40} style={{marginBottom: 8}} />}
+            <span style={{fontSize: 12, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase'}}>Offline</span>
           </div>
         )}
       </div>
 
       {/* Camera Info Overlay */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 backdrop-blur-[2px]">
-        <div className="flex items-center justify-between">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white truncate shadow-black drop-shadow-md">{cam.name}</p>
-            <p className="text-xs text-slate-300 truncate shadow-black drop-shadow-md">{cam.location}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {cam.riskScore > 30 && (
-              <span className="flex items-center gap-1 bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded text-[10px] font-bold border border-red-500/30">
-                RISK {cam.riskScore}
-              </span>
-            )}
-            <div className={`w-2.5 h-2.5 rounded-full shadow-lg ${
-              cam.status === 'online' ? 'bg-emerald-500 shadow-emerald-500/50' :
-              cam.status === 'processing' ? 'bg-amber-500 animate-pulse' :
-              cam.status === 'no-hardware' ? 'bg-slate-600' :
-              'bg-rose-500'
-            }`} />
-          </div>
+      <div style={infoOverlayStyle}>
+        <div style={{ overflow: 'hidden' }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#fff', margin: 0 }}>{cam.name}</p>
+          <p style={{ fontSize: 12, color: theme.colors.textMuted, margin: 0 }}>{cam.location}</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {cam.riskScore > 30 && (
+            <span style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              backgroundColor: theme.colors.dangerBg,
+              color: theme.colors.danger,
+              padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 'bold', border: `1px solid ${theme.colors.danger}44`
+            }}>
+              RISK {cam.riskScore}
+            </span>
+          )}
+          <div style={{
+            width: 10, height: 10, borderRadius: '50%',
+            backgroundColor: statusColor,
+            boxShadow: cam.status === 'online' ? `0 0 10px ${statusColor}` : 
+                       cam.status === 'connecting' || cam.status === 'processing' ? `0 0 10px ${statusColor}` : 'none',
+            animation: cam.status === 'connecting' || cam.status === 'processing' ? 'pulse 1s infinite' : 'none'
+          }} title={`Status: ${cam.status}`} />
         </div>
       </div>
 
       {/* Risk Indicator */}
-      {cam.riskScore > 70 && cam.status !== 'no-hardware' && (
-        <div className="absolute top-2 right-2 bg-red-900/80 p-1.5 rounded-lg border border-red-500/50 backdrop-blur-sm animate-bounce">
-          <AlertTriangle className="w-5 h-5 text-red-500" />
+      {cam.riskScore > 70 && cam.status !== 'no-hardware' && cam.status !== 'offline' && (
+        <div style={{
+          position: 'absolute', top: 8, right: 8,
+          backgroundColor: 'rgba(127, 29, 29, 0.8)',
+          padding: 6, borderRadius: 8,
+          border: '1px solid rgba(239, 68, 68, 0.5)',
+          backdropFilter: 'blur(4px)',
+          animation: 'bounce 1s infinite'
+        }}>
+          <AlertTriangle size={20} color={theme.colors.danger} />
         </div>
       )}
     </div>
@@ -91,7 +161,13 @@ export const CameraGrid: React.FC<CameraGridProps> = ({
   selectedCamera
 }) => {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+    <div style={{
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '12px',
+      justifyContent: 'flex-start',
+      width: '100%'
+    }}>
       {visibleCameras.map(cam => (
         <CameraCard
           key={cam.id}

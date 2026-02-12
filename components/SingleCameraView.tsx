@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, Info, Maximize, Settings, ShieldAlert, Activity, Crosshair, Target, Sparkles } from 'lucide-react';
+import { ChevronLeft, Maximize, Target, Sparkles, Crosshair, ShieldAlert, Activity } from './Icons';
 import { CameraDevice } from '../types';
 import { VideoPlayer } from './VideoPlayer';
+import { theme } from '../theme';
 
 interface SingleCameraViewProps {
   camera: CameraDevice;
@@ -19,7 +20,7 @@ export const SingleCameraView: React.FC<SingleCameraViewProps> = ({ camera, onBa
     setIsFocusing(true);
     setFocusComplete(false);
 
-    // Hardware focus attempt (if supported by the browser and device)
+    // Hardware focus attempt
     const videoTrack = camera.stream.getVideoTracks()[0];
     if (videoTrack && typeof videoTrack.applyConstraints === 'function') {
       try {
@@ -38,7 +39,6 @@ export const SingleCameraView: React.FC<SingleCameraViewProps> = ({ camera, onBa
     setTimeout(() => {
       setIsFocusing(false);
       setFocusComplete(true);
-      // Clear the "Focus Complete" flash after 2 seconds
       setTimeout(() => setFocusComplete(false), 2000);
     }, 1800);
   }, [camera.stream, camera.status]);
@@ -49,139 +49,149 @@ export const SingleCameraView: React.FC<SingleCameraViewProps> = ({ camera, onBa
     }
   }, [camera.status, performAutoFocus]);
 
+  const overlayHeaderStyle: React.CSSProperties = {
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 20,
+    padding: '16px',
+    background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+  };
+
+  const overlayFooterStyle: React.CSSProperties = {
+    position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20,
+    padding: '24px',
+    background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
+    display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+    pointerEvents: 'none'
+  };
+
+  const btnStyle: React.CSSProperties = {
+    padding: '8px',
+    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    border: '1px solid rgba(51, 65, 85, 0.5)',
+    borderRadius: '8px',
+    color: '#fff',
+    cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center'
+  };
+
   return (
-    <div className="flex flex-col h-full bg-black relative group overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
+      
       {/* Top Header Overlay */}
-      <div className="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-b from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={onBack}
-              className="p-2 bg-slate-800/80 hover:bg-slate-700 rounded-full text-white transition-colors border border-slate-700/50"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <div>
-              <h2 className="text-xl font-bold text-white leading-tight flex items-center gap-2">
-                {camera.name}
-                <span className="text-xs font-mono bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded border border-blue-500/30 uppercase">Live</span>
-              </h2>
-              <p className="text-sm text-slate-300 uppercase tracking-widest opacity-80">{camera.location}</p>
-            </div>
+      <div style={overlayHeaderStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <button onClick={onBack} style={{ ...btnStyle, borderRadius: '50%' }}>
+            <ChevronLeft size={20} />
+          </button>
+          <div>
+            <h2 style={{ fontSize: 20, fontWeight: 'bold', color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {camera.name}
+              <span style={{ fontSize: 12, fontFamily: theme.fonts.mono, backgroundColor: 'rgba(59, 130, 246, 0.2)', color: theme.colors.primaryLight, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(59, 130, 246, 0.3)', textTransform: 'uppercase' }}>Live</span>
+            </h2>
+            <p style={{ fontSize: 14, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.8, margin: 0 }}>{camera.location}</p>
           </div>
+        </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col items-end mr-4">
-              <span className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">Stream Health</span>
-              <div className="flex gap-1">
-                {[1,2,3,4,5].map(i => (
-                  <div key={i} className={`w-1 h-3 rounded-full ${i <= 4 ? 'bg-emerald-500' : 'bg-slate-700'}`} />
-                ))}
-              </div>
-            </div>
-            
-            {/* AI Deep Scan Button */}
-            <button 
-              onClick={() => onAnalyze(camera.id)}
-              className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg border border-indigo-400/50 shadow-lg shadow-indigo-900/20 transition-all font-bold text-xs uppercase tracking-wider"
-              title="Analyze Video with Gemini Pro"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>AI Deep Scan</span>
-            </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* AI Deep Scan Button */}
+          <button 
+            onClick={() => onAnalyze(camera.id)}
+            style={{ ...btnStyle, backgroundColor: theme.colors.info, borderColor: 'rgba(99, 102, 241, 0.5)', fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', gap: 8 }}
+          >
+            <Sparkles size={16} />
+            <span>AI Deep Scan</span>
+          </button>
 
-            <button 
-              onClick={performAutoFocus}
-              className={`p-2 bg-slate-800/80 hover:bg-slate-700 rounded-lg text-white border border-slate-700/50 transition-all ${isFocusing ? 'animate-pulse text-blue-400' : ''}`}
-              title="Manual Re-focus"
-            >
-              <Target className="w-5 h-5" />
-            </button>
-          </div>
+          <button onClick={performAutoFocus} style={btnStyle}>
+            <Target size={20} color={isFocusing ? theme.colors.primaryLight : '#fff'} />
+          </button>
         </div>
       </div>
 
       {/* Main Video Area */}
-      <div className="flex-1 relative flex items-center justify-center">
+      <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
         {camera.active && camera.stream ? (
           <VideoPlayer 
             stream={camera.stream} 
-            className={`w-full h-full object-contain transition-all duration-700 ${isFocusing ? 'blur-[2px] scale-[1.01]' : 'blur-0 scale-100'}`} 
+            style={{ 
+              width: '100%', height: '100%', objectFit: 'contain',
+              transition: 'all 0.7s',
+              filter: isFocusing ? 'blur(2px)' : 'none',
+              transform: isFocusing ? 'scale(1.01)' : 'scale(1)'
+            }} 
           />
         ) : (
-          <div className="flex flex-col items-center justify-center text-slate-700">
-            <ShieldAlert className="w-20 h-20 mb-4 opacity-20" />
-            <p className="text-xl font-mono uppercase tracking-widest animate-pulse">Establishing Secure Uplink...</p>
+          <div style={{ ...theme.layout.col, alignItems: 'center', color: theme.colors.textMuted }}>
+            <ShieldAlert size={80} style={{ opacity: 0.2, marginBottom: 16 }} />
+            <p style={{ fontSize: 20, fontFamily: theme.fonts.mono, textTransform: 'uppercase', letterSpacing: '0.2em' }} className="animate-pulse">Establishing Secure Uplink...</p>
           </div>
         )}
 
-        {/* AI Focus Overlay UI */}
+        {/* AI Focus Overlay */}
         {isFocusing && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-            <div className="relative">
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 border-2 border-blue-500/30 rounded-lg animate-ping"></div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border border-blue-400/50 rounded-lg animate-[pulse_1s_infinite]"></div>
-              <div className="flex flex-col items-center gap-2">
-                <Crosshair className="w-12 h-12 text-blue-400 animate-spin-slow opacity-80" />
-                <span className="text-[10px] font-mono text-blue-400 uppercase tracking-[0.3em] font-bold bg-black/40 px-2 py-1 backdrop-blur-sm rounded">
-                  AI Auto-Focusing...
-                </span>
-              </div>
+          <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+               <Crosshair size={48} color={theme.colors.primaryLight} className="animate-spin" style={{opacity: 0.8}} />
+               <span style={{ fontSize: 10, fontFamily: theme.fonts.mono, color: theme.colors.primaryLight, textTransform: 'uppercase', letterSpacing: '0.3em', fontWeight: 'bold', backgroundColor: 'rgba(0,0,0,0.4)', padding: '4px 8px', borderRadius: 4 }}>AI Auto-Focusing...</span>
             </div>
           </div>
         )}
 
-        {/* Focus Complete Indicator */}
+        {/* Focus Complete */}
         {focusComplete && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none animate-out fade-out duration-1000">
-            <div className="bg-emerald-500/20 border border-emerald-500/50 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-              <Target className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs font-mono text-emerald-400 uppercase font-bold tracking-widest">Focus Calibrated</span>
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 10, pointerEvents: 'none' }}>
+            <div style={{ backgroundColor: theme.colors.successBg, border: `1px solid ${theme.colors.success}`, padding: '8px 16px', borderRadius: 999, display: 'flex', alignItems: 'center', gap: 8, backdropFilter: 'blur(4px)' }}>
+              <Target size={16} color={theme.colors.success} />
+              <span style={{ fontSize: 12, fontFamily: theme.fonts.mono, color: theme.colors.success, textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: '0.1em' }}>Focus Calibrated</span>
             </div>
           </div>
         )}
 
-        {/* Telemetry Overlays */}
-        <div className="absolute bottom-6 left-6 flex flex-col gap-2 font-mono text-[10px] text-emerald-400/80 pointer-events-none">
-          <div className="flex gap-4">
+        {/* Telemetry */}
+        <div style={{ position: 'absolute', bottom: 24, left: 24, display: 'flex', flexDirection: 'column', gap: 8, fontFamily: theme.fonts.mono, fontSize: 10, color: 'rgba(16, 185, 129, 0.8)', pointerEvents: 'none' }}>
+          <div style={{ display: 'flex', gap: 16 }}>
             <span>RES: 1920x1080</span>
             <span>FPS: {camera.active ? '24.2' : '0.0'}</span>
             <span>BR: 4.8Mbps</span>
           </div>
-          <div className="flex gap-4">
+          <div style={{ display: 'flex', gap: 16 }}>
             <span>CODEC: H.264 High</span>
             <span>LATENCY: 42ms</span>
             <span>ENC: HARDWARE</span>
           </div>
         </div>
 
-        {/* Center Risk Badge */}
+        {/* Risk Badge */}
         {camera.riskScore > 30 && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-            <div className={`flex flex-col items-center justify-center p-8 rounded-full border-4 ${
-              camera.riskScore > 70 ? 'border-rose-500/50 bg-rose-500/10' : 'border-amber-500/50 bg-amber-500/10'
-            } backdrop-blur-sm animate-pulse`}>
-              <Activity className={`w-12 h-12 mb-2 ${camera.riskScore > 70 ? 'text-rose-500' : 'text-amber-500'}`} />
-              <span className="text-white font-bold text-2xl">RISK: {camera.riskScore}%</span>
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none' }}>
+            <div style={{ 
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', 
+              padding: 32, borderRadius: '50%', 
+              border: `4px solid ${camera.riskScore > 70 ? 'rgba(225, 29, 72, 0.5)' : 'rgba(245, 158, 11, 0.5)'}`,
+              backgroundColor: camera.riskScore > 70 ? 'rgba(225, 29, 72, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+              backdropFilter: 'blur(4px)'
+            }} className="animate-pulse">
+              <Activity size={48} color={camera.riskScore > 70 ? theme.colors.danger : theme.colors.warning} style={{ marginBottom: 8 }} />
+              <span style={{ color: '#fff', fontWeight: 'bold', fontSize: 24 }}>RISK: {camera.riskScore}%</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Bottom Footer Overlay */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 p-6 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-between pointer-events-none">
-        <div className="flex gap-8">
-           <div className="flex flex-col">
-             <span className="text-xs text-slate-500 uppercase font-bold mb-1">Safety Index</span>
-             <div className="h-1 w-32 bg-slate-800 rounded-full overflow-hidden">
-               <div className="h-full bg-blue-500" style={{ width: `${100 - camera.riskScore}%` }}></div>
+      {/* Footer Overlay */}
+      <div style={overlayFooterStyle}>
+        <div style={{ display: 'flex', gap: 32 }}>
+           <div style={theme.layout.col}>
+             <span style={{ fontSize: 12, color: theme.colors.textMuted, textTransform: 'uppercase', fontWeight: 'bold', marginBottom: 4 }}>Safety Index</span>
+             <div style={{ height: 4, width: 128, backgroundColor: theme.colors.border, borderRadius: 999, overflow: 'hidden' }}>
+               <div style={{ height: '100%', backgroundColor: theme.colors.primary, width: `${100 - camera.riskScore}%` }}></div>
              </div>
            </div>
         </div>
         
-        <div className="flex items-center gap-4 pointer-events-auto">
-          <button className="flex items-center gap-2 px-4 py-2 bg-slate-900/80 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-800 transition-colors text-xs font-bold uppercase tracking-wider">
-            <Maximize className="w-4 h-4" /> Full Screen
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, pointerEvents: 'auto' }}>
+          <button style={{ ...btnStyle, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            <Maximize size={16} style={{ marginRight: 8 }} /> Full Screen
           </button>
         </div>
       </div>

@@ -3,10 +3,10 @@ import React, { useEffect, useRef, memo } from 'react';
 interface VideoPlayerProps {
   stream?: MediaStream;
   streamUrl?: string;
-  className?: string;
+  style?: React.CSSProperties;
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({ stream, streamUrl, className }) => {
+export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({ stream, streamUrl, style }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -15,13 +15,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({ stream, streamUrl
     }
   }, [stream]);
 
+  const commonStyle: React.CSSProperties = {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    ...style
+  };
+
   // Handle Network Stream (MJPEG/Image source)
   if (streamUrl) {
     return (
       <img 
         src={streamUrl} 
-        className={className} 
         alt="Live Stream"
+        style={commonStyle}
         onError={(e) => {
           (e.target as HTMLImageElement).style.display = 'none';
         }} 
@@ -32,10 +39,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = memo(({ stream, streamUrl
   return (
     <video
       ref={videoRef}
-      className={className}
       autoPlay
       muted
       playsInline
+      style={commonStyle}
     />
   );
 });

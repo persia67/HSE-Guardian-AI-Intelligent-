@@ -19,9 +19,9 @@ export interface CameraDevice {
   lastDetection?: number;
   fps: number;
   status: 'online' | 'offline' | 'processing' | 'no-hardware' | 'connecting';
-  connectionType: 'local' | 'network'; // Removed 'simulation'
-  deviceId?: string; // For local hardware inputs
-  streamUrl?: string; // For IP Cameras (MJPEG/HTTP)
+  connectionType: 'local' | 'network';
+  deviceId?: string; 
+  streamUrl?: string;
 }
 
 export interface SafetyScore {
@@ -36,4 +36,6 @@ export interface OfflineAIState {
   isModelLoaded: boolean;
   isLoading: boolean;
   modelName: string;
+  progress: number; // 0-100
+  loadingText: string;
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, HardDrive, Globe, Plus, Camera, Trash2, Key, Save, Check, Cpu, Download, WifiOff } from 'lucide-react';
+import { X, RefreshCw, HardDrive, Globe, Plus, Camera, Trash2, Cpu, Download, WifiOff, Check, AlertCircle } from './Icons';
 import { CameraDevice, OfflineAIState } from '../types';
+import { theme } from '../theme';
 
 interface CameraSetupModalProps {
   cameras: CameraDevice[];
@@ -20,170 +21,121 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({
   const [activeTab, setActiveTab] = useState<'local' | 'network' | 'settings'>('local');
   const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
   const [ipForm, setIpForm] = useState({ name: '', location: '', url: '' });
-  
-  // API Key State
-  const [apiKey, setApiKey] = useState('');
-  const [isKeySaved, setIsKeySaved] = useState(false);
 
-  // Load initial data
   useEffect(() => {
     refreshDevices();
-    const savedKey = localStorage.getItem('gemini_api_key');
-    if (savedKey) setApiKey(savedKey);
   }, []);
 
-  // Scan for local hardware
   const refreshDevices = async () => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-      console.warn("Media Devices API not supported in this environment");
-      return;
-    }
-
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     try {
       let devices = await navigator.mediaDevices.enumerateDevices();
-      // Try to get permission to see labels
       const hasVideoInput = devices.some(d => d.kind === 'videoinput');
       if (hasVideoInput && devices.some(d => d.label === '')) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
           stream.getTracks().forEach(t => t.stop());
           devices = await navigator.mediaDevices.enumerateDevices();
-        } catch (permErr: any) {
-          console.warn("Camera permission denied or device inaccessible:", permErr.message);
-        }
+        } catch (e) { console.warn(e); }
       }
-
-      const videoInputs = devices.filter(d => d.kind === 'videoinput');
-      setAvailableDevices(videoInputs);
-    } catch (err) {
-      console.warn("Error enumerating devices:", err);
-    }
+      setAvailableDevices(devices.filter(d => d.kind === 'videoinput'));
+    } catch (err) { console.warn(err); }
   };
 
   const addLocalDevice = (device: MediaDeviceInfo) => {
-    const newCam: CameraDevice = {
+    onUpdateCameras([{
       id: `local-${device.deviceId.substring(0, 8)}`,
-      name: device.label || `USB Camera ${availableDevices.indexOf(device) + 1}`,
+      name: device.label || `USB Camera`,
       location: 'Local Hardware',
-      active: false,
-      riskScore: 0,
-      fps: 0,
-      status: 'offline',
-      connectionType: 'local',
-      deviceId: device.deviceId
-    };
-    onUpdateCameras([newCam, ...cameras]);
+      active: false, riskScore: 0, fps: 0, status: 'offline', connectionType: 'local', deviceId: device.deviceId
+    }, ...cameras]);
   };
 
   const addIpCamera = () => {
     if (!ipForm.url) return;
-    const newCam: CameraDevice = {
+    onUpdateCameras([{
       id: `ip-${Date.now()}`,
       name: ipForm.name || 'IP Camera',
       location: ipForm.location || 'Remote',
-      active: true, // Auto active for IP
-      riskScore: 0,
-      fps: 0,
-      status: 'online',
-      connectionType: 'network',
-      streamUrl: ipForm.url
-    };
-    onUpdateCameras([newCam, ...cameras]);
+      active: true, riskScore: 0, fps: 0, status: 'online', connectionType: 'network', streamUrl: ipForm.url
+    }, ...cameras]);
     setIpForm({ name: '', location: '', url: '' });
   };
 
-  const removeCamera = (id: string) => {
-    onUpdateCameras(cameras.filter(c => c.id !== id));
+  const removeCamera = (id: string) => onUpdateCameras(cameras.filter(c => c.id !== id));
+  
+  const inputStyle: React.CSSProperties = {
+    backgroundColor: theme.colors.bg,
+    border: `1px solid ${theme.colors.border}`,
+    borderRadius: 8,
+    padding: '8px 16px',
+    color: '#fff',
+    outline: 'none',
+    width: '100%',
+    marginBottom: 8,
+    fontFamily: theme.fonts.mono
   };
 
-  const saveApiKey = () => {
-    if (apiKey.trim()) {
-      localStorage.setItem('gemini_api_key', apiKey.trim());
-      setIsKeySaved(true);
-      setTimeout(() => setIsKeySaved(false), 2000);
-    } else {
-      localStorage.removeItem('gemini_api_key');
-    }
-  };
+  const buttonStyle = (primary = false, disabled = false) => ({
+    padding: '8px 16px',
+    borderRadius: 8,
+    fontSize: 12, fontWeight: 'bold',
+    backgroundColor: disabled ? theme.colors.border : (primary ? theme.colors.primary : theme.colors.border),
+    color: disabled ? theme.colors.textMuted : '#fff',
+    border: 'none',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    display: 'flex', alignItems: 'center', gap: 8
+  });
+
+  const tabStyle = (isActive: boolean) => ({
+    flex: 1, padding: 16,
+    border: 'none', borderBottom: `2px solid ${isActive ? theme.colors.primary : 'transparent'}`,
+    backgroundColor: isActive ? 'rgba(37, 99, 235, 0.05)' : 'transparent',
+    color: isActive ? theme.colors.primary : theme.colors.textMuted,
+    fontWeight: 'bold', textTransform: 'uppercase' as const, fontSize: 14,
+    cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+  });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
-        <div className="flex items-center justify-between p-6 border-b border-slate-800">
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)' }}>
+      <div style={{ backgroundColor: theme.colors.panel, border: `1px solid ${theme.colors.border}`, width: '100%', maxWidth: 896, borderRadius: 12, display: 'flex', flexDirection: 'column', maxHeight: '85vh', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+        
+        {/* Header */}
+        <div style={{ ...theme.layout.flexBetween, padding: 24, borderBottom: `1px solid ${theme.colors.border}` }}>
           <div>
-            <h3 className="text-xl font-bold text-white">System Configuration</h3>
-            <p className="text-sm text-slate-400">Manage hardware inputs, networks, and AI settings</p>
+            <h3 style={{ fontSize: 20, fontWeight: 'bold', color: '#fff', margin: 0 }}>System Configuration</h3>
+            <p style={{ fontSize: 14, color: theme.colors.textMuted, margin: '4px 0 0 0' }}>Manage hardware inputs, networks, and AI settings</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
-            <X className="w-6 h-6" />
-          </button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: theme.colors.textMuted, cursor: 'pointer' }}><X size={24} /></button>
         </div>
 
-        <div className="flex border-b border-slate-800">
-          <button
-            onClick={() => setActiveTab('local')}
-            className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 border-b-2 transition-colors ${
-              activeTab === 'local' ? 'border-blue-500 text-blue-500 bg-blue-500/5' : 'border-transparent text-slate-500 hover:text-slate-300'
-            }`}
-          >
-            <HardDrive className="w-4 h-4" /> Local Hardware
-          </button>
-          <button
-            onClick={() => setActiveTab('network')}
-            className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 border-b-2 transition-colors ${
-              activeTab === 'network' ? 'border-purple-500 text-purple-500 bg-purple-500/5' : 'border-transparent text-slate-500 hover:text-slate-300'
-            }`}
-          >
-            <Globe className="w-4 h-4" /> Network / IP
-          </button>
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 border-b-2 transition-colors ${
-              activeTab === 'settings' ? 'border-amber-500 text-amber-500 bg-amber-500/5' : 'border-transparent text-slate-500 hover:text-slate-300'
-            }`}
-          >
-            <Key className="w-4 h-4" /> AI Settings
-          </button>
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: `1px solid ${theme.colors.border}` }}>
+          <button onClick={() => setActiveTab('local')} style={tabStyle(activeTab === 'local')}><HardDrive size={16} /> Local Hardware</button>
+          <button onClick={() => setActiveTab('network')} style={tabStyle(activeTab === 'network')}><Globe size={16} /> Network / IP</button>
+          <button onClick={() => setActiveTab('settings')} style={tabStyle(activeTab === 'settings')}><Cpu size={16} /> AI Core</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-950/50">
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: 24, backgroundColor: 'rgba(2, 6, 23, 0.5)' }}>
           {activeTab === 'local' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                <div>
-                  <h4 className="font-bold text-white">Available Video Inputs</h4>
-                  <p className="text-xs text-slate-400">Scan for Webcams, Capture Cards, and HDMI Inputs</p>
-                </div>
-                <button 
-                  onClick={refreshDevices}
-                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold flex items-center gap-2 transition-colors"
-                >
-                  <RefreshCw className="w-4 h-4" /> Rescan Hardware
-                </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <div style={{ ...theme.layout.flexBetween, padding: 16, backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: 8, border: `1px solid ${theme.colors.border}` }}>
+                <div><h4 style={{ margin: 0, fontWeight: 'bold' }}>Available Video Inputs</h4></div>
+                <button onClick={refreshDevices} style={buttonStyle()}><RefreshCw size={16} /> Rescan</button>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 {availableDevices.map((device, idx) => (
-                  <div key={device.deviceId} className="bg-slate-900 border border-slate-700 p-4 rounded-xl flex items-center justify-between group hover:border-blue-500/50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-slate-800 p-2 rounded-lg text-slate-400 group-hover:text-blue-400">
-                        <Camera className="w-6 h-6" />
-                      </div>
+                  <div key={device.deviceId} style={{ ...theme.layout.flexBetween, padding: 16, backgroundColor: theme.colors.panel, borderRadius: 12, border: `1px solid ${theme.colors.border}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <Camera size={24} color={theme.colors.textMuted} />
                       <div>
-                        <div className="font-bold text-sm text-white truncate max-w-[200px]">{device.label || `Device ${idx + 1}`}</div>
-                        <div className="text-[10px] text-slate-500 font-mono">{device.deviceId.substring(0, 12)}...</div>
+                        <div style={{ fontWeight: 'bold', fontSize: 14 }}>{device.label || `Device ${idx + 1}`}</div>
+                        <div style={{ fontSize: 10, fontFamily: theme.fonts.mono, color: theme.colors.textMuted }}>{device.deviceId.substring(0, 12)}...</div>
                       </div>
                     </div>
-                    {cameras.some(c => c.deviceId === device.deviceId) ? (
-                      <span className="text-xs text-emerald-500 font-bold px-3 py-1 bg-emerald-500/10 rounded-full">ADDED</span>
-                    ) : (
-                      <button 
-                        onClick={() => addLocalDevice(device)}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1"
-                      >
-                        <Plus className="w-3 h-3" /> Add
-                      </button>
-                    )}
+                    <button onClick={() => addLocalDevice(device)} style={buttonStyle(true)}><Plus size={12} /> Add</button>
                   </div>
                 ))}
               </div>
@@ -191,180 +143,108 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({
           )}
 
           {activeTab === 'network' && (
-            <div className="space-y-6">
-               <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 space-y-4">
-                <h4 className="font-bold text-white">Add IP Camera</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="Camera Name (e.g., Gate 1)"
-                    value={ipForm.name}
-                    onChange={e => setIpForm({...ipForm, name: e.target.value})}
-                    className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Location"
-                    value={ipForm.location}
-                    onChange={e => setIpForm({...ipForm, location: e.target.value})}
-                    className="bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Stream URL (http://.../mjpeg)"
-                    value={ipForm.url}
-                    onChange={e => setIpForm({...ipForm, url: e.target.value})}
-                    className="col-span-1 md:col-span-2 bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500 font-mono text-sm"
-                  />
-                </div>
-                <div className="flex justify-end">
-                   <button 
-                    onClick={addIpCamera}
-                    disabled={!ipForm.url}
-                    className="px-6 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-lg flex items-center gap-2"
-                   >
-                     <Plus className="w-4 h-4" /> Add Stream
-                   </button>
-                </div>
-              </div>
+            <div style={{ padding: 24, backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: 12, border: `1px solid ${theme.colors.border}` }}>
+               <h4 style={{ margin: '0 0 16px 0', fontWeight: 'bold' }}>Add IP Camera</h4>
+               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                 <input type="text" placeholder="Name" value={ipForm.name} onChange={e => setIpForm({...ipForm, name: e.target.value})} style={inputStyle} />
+                 <input type="text" placeholder="Location" value={ipForm.location} onChange={e => setIpForm({...ipForm, location: e.target.value})} style={inputStyle} />
+                 <input type="text" placeholder="Stream URL" value={ipForm.url} onChange={e => setIpForm({...ipForm, url: e.target.value})} style={inputStyle} />
+               </div>
+               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                 <button onClick={addIpCamera} style={{...buttonStyle(), backgroundColor: 'purple'}}><Plus size={16} /> Add Stream</button>
+               </div>
             </div>
           )}
 
           {activeTab === 'settings' && (
-            <div className="space-y-6">
-              {/* Cloud AI Section */}
-              <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 space-y-4">
-                <div className="flex items-start gap-4">
-                  <div className="bg-amber-500/10 p-3 rounded-xl">
-                    <Key className="w-8 h-8 text-amber-500" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-white text-lg">Cloud AI (Google Gemini)</h4>
-                    <p className="text-slate-400 text-sm mt-1">
-                      Required for generating text reports and deep analysis.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">API Key</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      placeholder="AIzaSy..."
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white font-mono focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
-                    />
-                    <button
-                      onClick={saveApiKey}
-                      className={`px-6 rounded-lg font-bold flex items-center gap-2 transition-all ${
-                        isKeySaved 
-                          ? 'bg-emerald-600 text-white' 
-                          : 'bg-amber-600 hover:bg-amber-500 text-white'
-                      }`}
-                    >
-                      {isKeySaved ? <Check className="w-5 h-5" /> : <Save className="w-5 h-5" />}
-                      {isKeySaved ? 'Saved' : 'Save'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Offline AI Core Section */}
-              <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700 space-y-4">
-                <div className="flex items-start gap-4">
-                  <div className="bg-blue-500/10 p-3 rounded-xl">
-                    <Cpu className="w-8 h-8 text-blue-500" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-bold text-white text-lg">Offline AI Core (TFJS)</h4>
-                    <p className="text-slate-400 text-sm mt-1">
-                      Download COCO-SSD Model for local person detection.
-                    </p>
-                    <div className="mt-2 text-xs text-rose-400 bg-rose-500/10 p-2 rounded border border-rose-500/20">
-                        <strong>Note:</strong> Standard model detects "Persons" only. It does not detect PPE/Helmets specifically without custom training.
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between bg-slate-900 p-4 rounded-lg border border-slate-800">
-                  <div className="flex items-center gap-3">
-                    {offlineAI.isModelLoaded ? (
-                      <div className="w-10 h-10 bg-emerald-500/20 text-emerald-500 rounded-full flex items-center justify-center">
-                         <WifiOff className="w-5 h-5" />
-                      </div>
-                    ) : (
-                      <div className="w-10 h-10 bg-slate-800 text-slate-500 rounded-full flex items-center justify-center">
-                         <Download className="w-5 h-5" />
-                      </div>
-                    )}
-                    <div>
-                      <div className="font-bold text-sm text-white">
-                        {offlineAI.isModelLoaded ? 'AI Core Active' : 'Offline Model Not Loaded'}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {offlineAI.isModelLoaded 
-                          ? 'Running locally via WebGL/GPU' 
-                          : 'Requires ~5MB download once'}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={() => onToggleOfflineAI(!offlineAI.isModelLoaded)}
-                    disabled={offlineAI.isLoading}
-                    className={`px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 transition-all ${
-                      offlineAI.isModelLoaded 
-                        ? 'bg-rose-600/20 text-rose-500 hover:bg-rose-600/30'
-                        : 'bg-blue-600 hover:bg-blue-500 text-white'
-                    }`}
-                  >
-                     {offlineAI.isLoading ? (
-                       <>Loading...</>
-                     ) : offlineAI.isModelLoaded ? (
-                       <>Unload Core</>
-                     ) : (
-                       <>Download Core</>
-                     )}
-                  </button>
-                </div>
-                
-                {offlineAI.isLoading && (
-                   <div className="w-full bg-slate-700 h-1 rounded-full overflow-hidden">
-                     <div className="bg-blue-500 h-full w-full animate-pulse-fast"></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              
+              {/* Local AI Management */}
+              <div style={{ padding: 24, backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: 12, border: `1px solid ${theme.colors.border}` }}>
+                 <div style={{ display: 'flex', gap: 16 }}>
+                   <div style={{ padding: 12, borderRadius: '50%', backgroundColor: 'rgba(37, 99, 235, 0.1)', height: 'fit-content' }}>
+                     <Cpu size={32} color={theme.colors.primary} />
                    </div>
-                )}
+                   <div style={{ flex: 1 }}>
+                     <h4 style={{ margin: 0, fontWeight: 'bold', fontSize: 18 }}>Local AI Engine (WebGPU)</h4>
+                     <p style={{ margin: '4px 0 16px 0', fontSize: 14, color: theme.colors.textMuted }}>
+                       This system uses the <b>Phi-3.5 Vision</b> model running entirely on your GPU. No internet required for analysis.
+                     </p>
+                     
+                     <div style={{ ...theme.layout.flexBetween, marginTop: 16, padding: 16, backgroundColor: theme.colors.panel, borderRadius: 8, border: `1px solid ${theme.colors.border}` }}>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                         {offlineAI.isModelLoaded ? <Check size={24} color={theme.colors.success} /> : <Download size={24} color={theme.colors.textMuted} />}
+                         <div>
+                           <div style={{ fontWeight: 'bold', fontSize: 14 }}>{offlineAI.isModelLoaded ? 'Model Ready' : 'Model Not Loaded'}</div>
+                           <div style={{ fontSize: 12, color: theme.colors.textMuted }}>{offlineAI.isModelLoaded ? offlineAI.modelName : 'Requires ~2GB Download'}</div>
+                         </div>
+                       </div>
+                       <button 
+                        onClick={() => onToggleOfflineAI(!offlineAI.isModelLoaded)} 
+                        disabled={offlineAI.isLoading || offlineAI.isModelLoaded}
+                        style={buttonStyle(!offlineAI.isModelLoaded, offlineAI.isLoading || offlineAI.isModelLoaded)}
+                       >
+                         {offlineAI.isLoading ? 'Downloading...' : offlineAI.isModelLoaded ? 'Active' : 'Load Model'}
+                       </button>
+                     </div>
+
+                     {/* Progress Bar */}
+                     {offlineAI.isLoading && (
+                       <div style={{ marginTop: 16 }}>
+                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                           <span>{offlineAI.loadingText}</span>
+                           <span>{Math.round(offlineAI.progress)}%</span>
+                         </div>
+                         <div style={{ height: 6, width: '100%', backgroundColor: theme.colors.border, borderRadius: 999, overflow: 'hidden' }}>
+                           <div style={{ height: '100%', backgroundColor: theme.colors.primary, width: `${offlineAI.progress}%`, transition: 'width 0.2s' }}></div>
+                         </div>
+                       </div>
+                     )}
+
+                     {!offlineAI.isModelLoaded && !offlineAI.isLoading && (
+                       <div style={{ display: 'flex', gap: 8, marginTop: 12, fontSize: 12, color: theme.colors.warning }}>
+                         <AlertCircle size={16} />
+                         <span>First load requires internet to cache the model. Subsequent loads are offline.</span>
+                       </div>
+                     )}
+                   </div>
+                 </div>
               </div>
+
+               {/* Object Detection Core */}
+               <div style={{ padding: 24, backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: 12, border: `1px solid ${theme.colors.border}` }}>
+                 <div style={{ display: 'flex', gap: 16 }}>
+                   <div style={{ padding: 12, borderRadius: '50%', backgroundColor: 'rgba(16, 185, 129, 0.1)', height: 'fit-content' }}>
+                     <WifiOff size={32} color={theme.colors.success} />
+                   </div>
+                   <div style={{ flex: 1 }}>
+                     <h4 style={{ margin: 0, fontWeight: 'bold' }}>Lightweight Detection (COCO-SSD)</h4>
+                     <p style={{ margin: '4px 0', fontSize: 14, color: theme.colors.textMuted }}>Always-on lightweight model for person and vehicle detection.</p>
+                     <div style={{ marginTop: 8, display: 'inline-block', padding: '4px 8px', borderRadius: 4, backgroundColor: theme.colors.successBg, color: theme.colors.success, fontSize: 12, fontWeight: 'bold' }}>
+                       AUTO-LOADED
+                     </div>
+                   </div>
+                 </div>
+              </div>
+
             </div>
           )}
-          
+
           {activeTab !== 'settings' && (
-            <div className="mt-8">
-              <h4 className="font-bold text-white mb-4">Configured Cameras ({cameras.length})</h4>
-              <div className="grid grid-cols-1 gap-2">
-                {cameras.map((cam, idx) => (
-                  <div key={cam.id} className="flex items-center justify-between bg-slate-900 p-3 rounded-lg border border-slate-800">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-mono text-slate-600 w-6">{idx + 1}</span>
-                      <div>
-                        <div className="font-bold text-sm text-slate-200">{cam.name}</div>
-                        <div className="text-xs text-slate-500 flex gap-2">
-                          <span>{cam.location}</span>
-                          <span className="text-slate-600">•</span>
-                          <span className="uppercase">{cam.connectionType}</span>
-                        </div>
-                      </div>
+            <div style={{ marginTop: 32 }}>
+              <h4 style={{ fontWeight: 'bold', marginBottom: 16 }}>Configured Cameras ({cameras.length})</h4>
+              {cameras.map((cam, idx) => (
+                <div key={cam.id} style={{ ...theme.layout.flexBetween, padding: 12, backgroundColor: theme.colors.panel, borderRadius: 8, marginBottom: 8, border: `1px solid ${theme.colors.border}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontFamily: theme.fonts.mono, color: theme.colors.textMuted }}>{idx + 1}</span>
+                    <div>
+                      <div style={{ fontWeight: 'bold', fontSize: 14 }}>{cam.name}</div>
+                      <div style={{ fontSize: 12, color: theme.colors.textMuted }}>{cam.location} • {cam.connectionType.toUpperCase()}</div>
                     </div>
-                    <button 
-                      onClick={() => removeCamera(cam.id)}
-                      className="text-slate-500 hover:text-rose-500 p-2 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                   </div>
-                ))}
-              </div>
+                  <button onClick={() => removeCamera(cam.id)} style={{ background: 'none', border: 'none', color: theme.colors.textMuted, cursor: 'pointer' }}><Trash2 size={16} /></button>
+                </div>
+              ))}
             </div>
           )}
         </div>
