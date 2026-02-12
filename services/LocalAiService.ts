@@ -19,11 +19,17 @@ class LocalAiService {
     };
 
     try {
+      // Create engine with default caching enabled. 
+      // WebLLM uses the Cache API (CacheStorage) to store model weights.
+      // Once downloaded, these will be available offline.
       this.engine = await CreateMLCEngine(
         SELECTED_MODEL,
-        { initProgressCallback }
+        { 
+          initProgressCallback,
+          logLevel: "INFO" // Reduce logs for production
+        }
       );
-      console.log("Local AI Engine Loaded");
+      console.log("Local AI Engine Loaded (WebGPU)");
     } catch (error) {
       console.error("Failed to load Local AI:", error);
       throw error;
@@ -49,12 +55,18 @@ class LocalAiService {
       }
     ];
 
-    const reply = await this.engine.chat.completions.create({
-      messages: messages as any,
-      max_tokens: 256, // Limit tokens for speed
-    });
+    try {
+      const reply = await this.engine.chat.completions.create({
+        messages: messages as any,
+        max_tokens: 256,
+        temperature: 0.1, // Low temperature for factual safety analysis
+      });
 
-    return reply.choices[0].message.content || "No analysis produced.";
+      return reply.choices[0].message.content || "No analysis produced.";
+    } catch (err) {
+      console.error("Analysis error:", err);
+      return "Error running model analysis.";
+    }
   }
 
   async generateText(prompt: string): Promise<string> {
@@ -64,12 +76,18 @@ class LocalAiService {
       { role: "user", content: prompt }
     ];
 
-    const reply = await this.engine.chat.completions.create({
-      messages: messages as any,
-      max_tokens: 512,
-    });
+    try {
+      const reply = await this.engine.chat.completions.create({
+        messages: messages as any,
+        max_tokens: 512,
+        temperature: 0.7,
+      });
 
-    return reply.choices[0].message.content || "No text generated.";
+      return reply.choices[0].message.content || "No text generated.";
+    } catch (err) {
+      console.error("Generation error:", err);
+      return "Error generating text.";
+    }
   }
 }
 
