@@ -3,5 +3,6 @@
   "description": "Enterprise-grade AI dashboard for real-time industrial safety monitoring, risk assessment, and hazard detection.",
   "requestFramePermissions": [
     "camera"
-  ]
+  ],
+  "majorCapabilities": []
 }

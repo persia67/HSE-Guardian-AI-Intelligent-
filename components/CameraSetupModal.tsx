@@ -43,8 +43,10 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({
   };
 
   const addLocalDevice = (device: MediaDeviceInfo) => {
+    const rand = Math.random().toString(36).substring(2, 6);
+    const suffix = device.deviceId ? `${device.deviceId.substring(0, 8)}-${rand}` : rand;
     onUpdateCameras([{
-      id: `local-${device.deviceId.substring(0, 8)}`,
+      id: `local-${suffix}`,
       name: device.label || `USB Camera`,
       location: 'Local Hardware',
       active: false, riskScore: 0, fps: 0, status: 'offline', connectionType: 'local', deviceId: device.deviceId
@@ -53,8 +55,9 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({
 
   const addIpCamera = () => {
     if (!ipForm.url) return;
+    const rand = Math.random().toString(36).substring(2, 6);
     onUpdateCameras([{
-      id: `ip-${Date.now()}`,
+      id: `ip-${Date.now()}-${rand}`,
       name: ipForm.name || 'IP Camera',
       location: ipForm.location || 'Remote',
       active: true, riskScore: 0, fps: 0, status: 'online', connectionType: 'network', streamUrl: ipForm.url
@@ -127,12 +130,12 @@ export const CameraSetupModal: React.FC<CameraSetupModalProps> = ({
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 {availableDevices.map((device, idx) => (
-                  <div key={device.deviceId} style={{ ...theme.layout.flexBetween, padding: 16, backgroundColor: theme.colors.panel, borderRadius: 12, border: `1px solid ${theme.colors.border}` }}>
+                  <div key={device.deviceId || `device-${idx}`} style={{ ...theme.layout.flexBetween, padding: 16, backgroundColor: theme.colors.panel, borderRadius: 12, border: `1px solid ${theme.colors.border}` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <Camera size={24} color={theme.colors.textMuted} />
                       <div>
                         <div style={{ fontWeight: 'bold', fontSize: 14 }}>{device.label || `Device ${idx + 1}`}</div>
-                        <div style={{ fontSize: 10, fontFamily: theme.fonts.mono, color: theme.colors.textMuted }}>{device.deviceId.substring(0, 12)}...</div>
+                        <div style={{ fontSize: 10, fontFamily: theme.fonts.mono, color: theme.colors.textMuted }}>{(device.deviceId || 'unknown').substring(0, 12)}...</div>
                       </div>
                     </div>
                     <button onClick={() => addLocalDevice(device)} style={buttonStyle(true)}><Plus size={12} /> Add</button>

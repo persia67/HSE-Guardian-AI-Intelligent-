@@ -28,7 +28,24 @@ export default function HSEGuardianAI() {
   // Persistence Initialization
   const [cameras, setCameras] = useState<CameraDevice[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.CAMERAS);
-    return saved ? JSON.parse(saved).map((c: any) => ({ ...c, active: false, stream: undefined, status: 'offline' })) : [];
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        const seenIds = new Set<string>();
+        return parsed.map((c: any, index: number) => {
+          let id = c.id || `cam-${Date.now()}-${index}`;
+          // If we have seen this ID or it's just 'local-', give it a unique suffix
+          if (seenIds.has(id) || id === 'local-') {
+            id = `${id || 'cam'}-dup-${index}-${Math.floor(Math.random() * 1000)}`;
+          }
+          seenIds.add(id);
+          return { ...c, id, active: false, stream: undefined, status: 'offline' };
+        });
+      } catch (e) {
+        console.error("Failed to parse cameras from localStorage", e);
+      }
+    }
+    return [];
   });
   
   const [detections, setDetections] = useState<Detection[]>(() => {
@@ -117,7 +134,7 @@ export default function HSEGuardianAI() {
     const loadCoco = async () => {
         try {
             await tf.ready();
-            const loadedNet = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+            const loadedNet = await cocoSsd.load({ base: 'mobilenet_v2' });
             setNet(loadedNet);
         } catch(e) { console.error("COCO Fail", e); }
     };

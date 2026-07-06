@@ -1,0 +1,115 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build & Sign Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install Rust (for Tauri)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up JDK 17 (for Android build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Dependencies
+        run: |
+          npm install
+          npm install -g @capacitor/cli @capacitor/core @capacitor/android
+
+      - name: Initialize & Configure Capacitor (for Android)
+        shell: bash
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap init "HSE Guardian AI" "com.hse.guardian.ai" --web-dir=dist
+            npx cap add android
+          fi
+
+      - name: Build Web Assets
+        run: npm run build
+
+      - name: Sync Web Assets to Android
+        run: npx cap sync android
+
+      - name: Build Android Release APK
+        shell: bash
+        cwd: android
+        run: ./gradlew assembleRelease
+
+      - name: Sign Android Release APK
+        if: "${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}"
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Build Windows Desktop App (Tauri)
+        shell: pwsh
+        run: |
+          npm run tauri build -- --bundles msi,exe
+
+      - name: Decode Windows Code Signing Certificate
+        shell: pwsh
+        run: |
+          if ("${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}" -ne "") {
+            [System.Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}") | Set-Content "${{ github.workspace }}\windows-cert.pfx" -Encoding Byte
+          }
+
+      - name: Sign Windows Desktop App
+        shell: pwsh
+        run: |
+          if ("${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}" -ne "") {
+            Get-ChildItem -Path src-tauri/target/release/bundle/msi/*.msi, src-tauri/target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue | ForEach-Object {
+              signtool sign /f "${{ github.workspace }}\windows-cert.pfx" /p "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}" /tr http://timestamp.digicert.com /td sha256 /fd sha256 $_.FullName
+            }
+          }
+
+      - name: Get Version Number
+        id: get_version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Github Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: HSE Guardian AI v${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/apk/release/*-signed.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
